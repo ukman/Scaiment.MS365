@@ -1,44 +1,18 @@
 /// <reference types="office-js" />
 /*
-  Excel Workbook ORM (metadata + lightweight accessors) — now with Generics & Typed Rows
-  --------------------------------------------------------------------------------------
-  What's new:
-  - TableRepository.getAs<T>(name, definition) → returns a TypedTable<T>
-  - Column typing & validation: string | number | boolean | date | any
-  - Object <-> row mapping with optional name mapping, default values, coercion & required checks
+  Excel Workbook ORM (metadata + typed CRUD for Tables)
+  ----------------------------------------------------
+  Highlights
+  - TableRepository.getAs<T>(name, def) → TypedTable<T>
+  - TypedRowRepository: getAll, findFirstBy/findAllBy, add, setAll, updateBy, deleteBy
+  - Honors column metadata from TableDefinition: required, default, final, calculated
 
-  Quick start:
-
-  type User = { Id: number; Name: string; Email: string; IsActive: boolean; CreatedAt: Date };
-
-  const userDef: TableDefinition<User> = {
-    columns: {
-      Id:       { type: "number",  required: true },
-      Name:     { type: "string",  required: true },
-      Email:    { type: "string" },
-      IsActive: { type: "boolean", default: true },
-      CreatedAt:{ type: "date",    default: () => new Date() },
-    },
-    // Optional: map keys to Excel header names if they differ (default = same name)
-    names: { /* Email: "E-mail" * / },
-    // Optional: control column order when writing (defaults to header order)
-    order: ["Id", "Name", "Email", "IsActive", "CreatedAt"],
-  };
-
-  await Excel.run(async (ctx) => {
-    const orm = new WorkbookORM(ctx.workbook);
-
-    const users = await orm.tables.getAs<User>("Users", userDef);
-
-    // Read typed records
-    const list: User[] = await users.rows.getAll();
-
-    // Add typed row with validation/coercion/defaults
-    await users.rows.add({ Id: 101, Name: "Alice", Email: "a@ex.com" });
-  });
+  NOTE: For calculated columns we never write values — we let Excel formulas populate them.
+        For final columns we allow values on INSERT, but forbid changes on UPDATE.
 */
 
 // ========================= Shared Types =========================
+export type ColumnType = "string" | "number" | "boolean" | "date" | "any";
 
 export interface ColumnSchema {
   name: string;
@@ -53,24 +27,46 @@ export interface TableSchema {
   columns: ColumnSchema[];
 }
 
-export type ColumnType = "string" | "number" | "boolean" | "date" | "any";
 export type DefaultValue<T> = T | (() => T);
 
 export type TableDefinition<T extends Record<string, any>> = {
-  columns: {
-    [K in keyof T]-?: {
-      type?: ColumnType;
-      required?: boolean;
-      default?: DefaultValue<T[K]>;
-      // добавили метаданные из шапки
-      calculated?: boolean;
-      referenceTo?: string;
-      final?: boolean;
-    };
-  };
+  /** Column contracts (+ optional metadata) */
+  columns: { [K in keyof T]-?: { type?: ColumnType; required?: boolean; default?: DefaultValue<T[K]>; final?: boolean; calculated?: boolean } };
+  /** Optional: mapping from property key → Excel header name (if different) */
   names?: Partial<Record<keyof T, string>>;
+  /** Optional: write order for columns; read always respects actual header order */
   order?: (keyof T)[];
 };
+
+/** Options for row searching */
+export interface RowFindOptions { caseInsensitive?: boolean; trim?: boolean; }
+
+/** Untyped row match result */
+export interface RowMatch { index: number; row: Record<string, any>; range: Excel.Range; }
+
+/** Typed row match result */
+export type RowMatchTyped<T> = { index: number; row: T; range: Excel.Range };
+
+function normalizeForCompare(v: any, opts?: RowFindOptions): any {
+  if (v == null) return v;
+  if (v instanceof Date) return v.getTime();
+  if (typeof v === "string") {
+    let s = v;
+    if (opts?.trim) s = s.trim();
+    if (opts?.caseInsensitive) s = s.toLowerCase();
+    return s;
+  }
+  return v;
+}
+
+function isEqual(a: any, b: any, opts?: RowFindOptions): boolean {
+  return normalizeForCompare(a, opts) === normalizeForCompare(b, opts);
+}
+
+function isBlank(v: any): boolean {
+  return v === undefined || v === null || v === "";
+}
+
 /** Utility helpers for Office.js loading */
 // In @types/office-js, `load` is not declared on the base ClientObject type, but on each concrete object.
 // So we constrain to a ClientObject that also has a `load` method.
@@ -115,9 +111,7 @@ export class TableRepository {
   private workbook: Excel.Workbook;
   private cacheByName: Map<string, ExcelTable> = new Map();
 
-  constructor(workbook: Excel.Workbook) {
-    this.workbook = workbook;
-  }
+  constructor(workbook: Excel.Workbook) { this.workbook = workbook; }
 
   /** Returns lightweight schemas for all tables in the workbook */
   async listSchemas(): Promise<TableSchema[]> {
@@ -133,30 +127,19 @@ export class TableRepository {
     await ctx.sync();
 
     for (const t of tables.items) {
-      const columns: ColumnSchema[] = t.columns.items.map((c) => ({
-        name: c.name,
-        index: c.index,
-      }));
-      results.push({
-        id: t.id,
-        name: t.name,
-        worksheet: t.worksheet.name,
-        columns,
-      });
+      const columns: ColumnSchema[] = t.columns.items.map((c) => ({ name: c.name, index: c.index }));
+      results.push({ id: t.id, name: t.name, worksheet: t.worksheet.name, columns });
     }
     return results.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /** Get an untyped wrapped table by name (case-sensitive Excel name) */
   async get(name: string): Promise<ExcelTable> {
-    const cached = this.cacheByName.get(name);
-    if (cached) return cached;
-
+    const cached = this.cacheByName.get(name); if (cached) return cached;
     const ctx = this.workbook.context as Excel.RequestContext;
     const table = this.workbook.tables.getItem(name);
     table.load(["id", "name", "worksheet/name", "columns/items/name", "columns/items/index"]);
     await ctx.sync();
-
     const wrapped = new ExcelTable(table);
     this.cacheByName.set(name, wrapped);
     return wrapped;
@@ -186,28 +169,18 @@ export class ExcelTable {
     const t = this.table;
     await loadAndSync(t, ["id", "name", "worksheet/name", "columns/items/name", "columns/items/index"]);
     const columns: ColumnSchema[] = t.columns.items.map((c) => ({ name: c.name, index: c.index }));
-    return {
-      id: t.id,
-      name: t.name,
-      worksheet: t.worksheet.name,
-      columns,
-    };
+    return { id: t.id, name: t.name, worksheet: t.worksheet.name, columns };
   }
 
   /** Native reference */
-  get native(): Excel.Table {
-    return this.table;
-  }
+  get native(): Excel.Table { return this.table; }
 }
 
 // ========================= Column Access (Untyped) =========================
 export class ColumnRepository {
   private table: Excel.Table;
   private byName: Map<string, ExcelColumn> = new Map();
-
-  constructor(table: Excel.Table) {
-    this.table = table;
-  }
+  constructor(table: Excel.Table) { this.table = table; }
 
   async list(): Promise<ExcelColumn[]> {
     const ctx = this.table.context as Excel.RequestContext;
@@ -219,14 +192,11 @@ export class ColumnRepository {
   }
 
   async get(name: string): Promise<ExcelColumn> {
-    const cached = this.byName.get(name);
-    if (cached) return cached;
-
+    const cached = this.byName.get(name); if (cached) return cached;
     const ctx = this.table.context as Excel.RequestContext;
     const col = this.table.columns.getItem(name);
     col.load(["name", "index"]);
     await ctx.sync();
-
     const wrapped = new ExcelColumn(this.table, col.name, col.index);
     this.byName.set(name, wrapped);
     return wrapped;
@@ -237,12 +207,7 @@ export class ExcelColumn {
   private table: Excel.Table;
   readonly name: string;
   readonly index: number; // zero-based index within table
-
-  constructor(table: Excel.Table, name: string, index: number) {
-    this.table = table;
-    this.name = name;
-    this.index = index;
-  }
+  constructor(table: Excel.Table, name: string, index: number) { this.table = table; this.name = name; this.index = index; }
 
   async getDataRange(): Promise<Excel.Range> {
     const col = this.table.columns.getItem(this.name);
@@ -264,11 +229,8 @@ export class ExcelColumn {
     const rng = col.getDataBodyRange();
     rng.load(["rowCount"]);
     await (this.table.context as Excel.RequestContext).sync();
-
-    if (rng.rowCount !== values.length) {
-      throw new Error(
-        `Length mismatch for column "${this.name}": table has ${rng.rowCount} rows, received ${values.length}`
-      );
+    if ((rng as any).rowCount !== values.length) {
+      throw new Error(`Length mismatch for column "${this.name}": table has ${(rng as any).rowCount} rows, received ${values.length}`);
     }
     rng.values = values.map((v) => [v]);
     await (this.table.context as Excel.RequestContext).sync();
@@ -278,10 +240,7 @@ export class ExcelColumn {
 // ========================= Row Helpers (Untyped) =========================
 export class RowRepository {
   private table: Excel.Table;
-
-  constructor(table: Excel.Table) {
-    this.table = table;
-  }
+  constructor(table: Excel.Table) { this.table = table; }
 
   protected async headers(): Promise<string[]> {
     const headerRange = this.table.getHeaderRowRange();
@@ -293,10 +252,12 @@ export class RowRepository {
 
   async getAll(): Promise<Record<string, any>[]> {
     const headers = await this.headers();
-    const body = this.table.getDataBodyRange();
-    body.load(["values"]);
-    await (this.table.context as Excel.RequestContext).sync();
-    const values: any[][] = body.values || [];
+    const ctx = this.table.context as Excel.RequestContext;
+    const body: any = (this.table as any).getDataBodyRangeOrNullObject ? (this.table as any).getDataBodyRangeOrNullObject() : this.table.getDataBodyRange();
+    body.load(["values", "rowCount", "isNullObject"]);
+    await ctx.sync();
+    const isEmpty = Boolean(body.isNullObject) || (body.rowCount === 0);
+    const values: any[][] = isEmpty ? [] : (body.values || []);
     return rowsToObjects(headers, values);
   }
 
@@ -310,16 +271,13 @@ export class RowRepository {
   async setAll(objs: Record<string, any>[]): Promise<void> {
     const headers = await this.headers();
     const rows = objs.map((o) => objectToRow(headers, o));
-
     const body = this.table.getDataBodyRange();
     body.load(["rowCount"]);
     await (this.table.context as Excel.RequestContext).sync();
-
-    if (body.rowCount > 0) {
+    if ((body as any).rowCount > 0) {
       body.clear(Excel.ClearApplyTo.contents);
       await (this.table.context as Excel.RequestContext).sync();
     }
-
     if (rows.length > 0) {
       this.table.rows.add(null, rows);
       await (this.table.context as Excel.RequestContext).sync();
@@ -330,10 +288,66 @@ export class RowRepository {
     const body = this.table.getDataBodyRange();
     body.load(["rowCount"]);
     await (this.table.context as Excel.RequestContext).sync();
-    if (body.rowCount > 0) {
+    if ((body as any).rowCount > 0) {
       body.clear(Excel.ClearApplyTo.contents);
       await (this.table.context as Excel.RequestContext).sync();
     }
+  }
+
+  /** Find first row by header name and value */
+  async findFirstByHeader(header: string, value: any, opts?: RowFindOptions): Promise<RowMatch | null> {
+    const headers = await this.headers();
+    const colIdx = headers.indexOf(header);
+    if (colIdx === -1) throw new Error(`Header not found: ${header}`);
+
+    const column: any = this.table.columns.getItem(header);
+    const colRange: any = column.getDataBodyRangeOrNullObject ? column.getDataBodyRangeOrNullObject() : column.getDataBodyRange();
+    colRange.load(["values", "rowCount", "isNullObject"]);
+    await (this.table.context as Excel.RequestContext).sync();
+    if (Boolean(colRange.isNullObject) || colRange.rowCount === 0) return null;
+
+    const colValues: any[] = (colRange.values || []).map((r: any[]) => r[0]);
+    const foundIndex = colValues.findIndex((v) => isEqual(v, value, opts));
+    if (foundIndex === -1) return null;
+
+    const body: any = (this.table as any).getDataBodyRangeOrNullObject ? (this.table as any).getDataBodyRangeOrNullObject() : this.table.getDataBodyRange();
+    body.load(["values", "isNullObject"]);
+    await (this.table.context as Excel.RequestContext).sync();
+    if (Boolean(body.isNullObject)) return null;
+    const rowVals = (body.values || [])[foundIndex];
+    const rowObj = rowsToObjects(headers, [rowVals])[0];
+
+    const range = this.table.rows.getItemAt(foundIndex).getRange();
+    return { index: foundIndex, row: rowObj, range };
+  }
+
+  /** Find all rows by header name and value */
+  async findAllByHeader(header: string, value: any, opts?: RowFindOptions): Promise<RowMatch[]> {
+    const headers = await this.headers();
+    const colIdx = headers.indexOf(header);
+    if (colIdx === -1) throw new Error(`Header not found: ${header}`);
+
+    const column: any = this.table.columns.getItem(header);
+    const colRange: any = column.getDataBodyRangeOrNullObject ? column.getDataBodyRangeOrNullObject() : column.getDataBodyRange();
+    colRange.load(["values", "rowCount", "isNullObject"]);
+    await (this.table.context as Excel.RequestContext).sync();
+
+    const colValues: any[] = (colRange.values || []).map((r: any[]) => r[0]);
+
+    const body: any = (this.table as any).getDataBodyRangeOrNullObject ? (this.table as any).getDataBodyRangeOrNullObject() : this.table.getDataBodyRange();
+    body.load(["values", "isNullObject"]);
+    await (this.table.context as Excel.RequestContext).sync();
+
+    const matches: RowMatch[] = [];
+    colValues.forEach((v, i) => {
+      if (isEqual(v, value, opts)) {
+        const rowVals = (body.values || [])[i];
+        const rowObj = rowsToObjects(headers, [rowVals])[0];
+        const range = this.table.rows.getItemAt(i).getRange();
+        matches.push({ index: i, row: rowObj, range });
+      }
+    });
+    return matches;
   }
 }
 
@@ -379,9 +393,7 @@ class SchemaValidator {
   }
 }
 
-/**
- * Maps typed keys to actual Excel headers and stores column type/defaults.
- */
+/** Maps typed keys to Excel headers & column constraints */
 class ColumnMapping<T extends Record<string, any>> {
   readonly headers: string[];
   readonly keyByHeader: Map<string, keyof T> = new Map();
@@ -389,20 +401,20 @@ class ColumnMapping<T extends Record<string, any>> {
   readonly types: Map<keyof T, ColumnType | undefined> = new Map();
   readonly defaults: Map<keyof T, DefaultValue<any> | undefined> = new Map();
   readonly required: Set<keyof T> = new Set();
+  readonly finals: Set<keyof T> = new Set();
+  readonly calculated: Set<keyof T> = new Set();
 
   constructor(headers: string[], def: TableDefinition<T>) {
     this.headers = headers.slice();
-
-    // Resolve header names for each key
     (Object.keys(def.columns) as (keyof T)[]).forEach((k) => {
       const header = (def.names?.[k] as string) ?? (k as string);
       this.headerByKey.set(k, header);
       this.types.set(k, def.columns[k].type);
       this.defaults.set(k, def.columns[k].default);
       if (def.columns[k].required) this.required.add(k);
+      if ((def.columns[k] as any).final) this.finals.add(k);
+      if ((def.columns[k] as any).calculated) this.calculated.add(k);
     });
-
-    // Build reverse map only for headers that exist
     headers.forEach((h) => {
       const entry = (Object.keys(def.columns) as (keyof T)[]).find((k) => this.headerByKey.get(k) === h);
       if (entry) this.keyByHeader.set(h, entry);
@@ -413,7 +425,6 @@ class ColumnMapping<T extends Record<string, any>> {
 export class TypedTable<T extends Record<string, any>> {
   readonly base: ExcelTable;
   readonly def: TableDefinition<T>;
-
   public readonly rows: TypedRowRepository<T>;
 
   constructor(base: ExcelTable, def: TableDefinition<T>) {
@@ -428,11 +439,7 @@ export class TypedTable<T extends Record<string, any>> {
 
 export class TypedRowRepository<T extends Record<string, any>> extends RowRepository {
   private readonly def: TableDefinition<T>;
-
-  constructor(table: Excel.Table, def: TableDefinition<T>) {
-    super(table);
-    this.def = def;
-  }
+  constructor(table: Excel.Table, def: TableDefinition<T>) { super(table); this.def = def; }
 
   private async mapping(): Promise<ColumnMapping<T>> {
     const headers = await this["headers"]();
@@ -460,68 +467,114 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
         const raw = r[i];
         rec[key as string] = coerce ? SchemaValidator.coerce(mapping.types.get(key), raw) : raw;
       });
-      // required checks
+      // required checks (ignore calculated)
       mapping.required.forEach((k) => {
+        if (mapping.calculated.has(k)) return;
         const v = rec[k as string];
-        if (v === undefined || v === null || v === "") {
-          throw new Error(`Required column missing/empty: ${String(k)}`);
-        }
+        if (isBlank(v)) throw new Error(`Required column missing/empty: ${String(k)}`);
       });
       result.push(rec as T);
     }
     return result;
   }
 
-  /** Append typed row with defaults & coercion */
+  /** Append typed row with defaults & coercion (skips calculated columns) */
   async add(obj: Partial<T>, options?: { fillDefaults?: boolean; coerce?: boolean }): Promise<void> {
     const { fillDefaults = true, coerce = true } = options ?? {};
     const headers = await this["headers"]();
     const mapping = await this.mapping();
 
     const rowObj: Record<string, any> = {};
-
-    // Prepare by reading def over headers order
     headers.forEach((h) => {
       const key = mapping.keyByHeader.get(h);
-      if (!key) {
-        // header not in def — write raw if provided by name
-        rowObj[h] = undefined;
-        return;
-      }
+      if (!key) { rowObj[h] = undefined; return; }
+      if (mapping.calculated.has(key)) { rowObj[h] = undefined; return; } // never write calculated
       let v = (obj as any)[key];
-      if ((v === undefined || v === null || v === "") && fillDefaults) {
+      if (isBlank(v) && fillDefaults) {
         const dv = SchemaValidator.defaultValue(mapping.defaults.get(key));
         if (dv !== undefined) v = dv;
       }
       if (coerce) v = SchemaValidator.coerce(mapping.types.get(key), v);
       rowObj[h] = v;
     });
-
-    // Required validation
+    // required validation (ignore calculated)
     mapping.required.forEach((k) => {
+      if (mapping.calculated.has(k)) return;
       const header = mapping.headerByKey.get(k) as string;
       const v = rowObj[header];
-      if (v === undefined || v === null || v === "") {
-        throw new Error(`Required value missing for ${String(k)} (${header})`);
-      }
+      if (isBlank(v)) throw new Error(`Required value missing for ${String(k)} (${header})`);
     });
 
     await super.add(rowObj);
+  }  /** Bulk-insert: add many typed rows efficiently (single mapping/headers, chunked writes). */
+  async addMany(objs: Partial<T>[], options?: { fillDefaults?: boolean; coerce?: boolean; chunkSize?: number }): Promise<number> {
+    if (!objs || objs.length === 0) return 0;
+    const { fillDefaults = true, coerce = true, chunkSize = 500 } = options ?? {};
+
+    const headers = await this["headers"]();
+    const mapping = await this.mapping();
+    const table: Excel.Table = (this as any)["table"];
+
+    const rowsToAdd: any[][] = [];
+
+    for (const obj of objs) {
+      const rowObj: Record<string, any> = {};
+      headers.forEach((h) => {
+        const key = mapping.keyByHeader.get(h);
+        if (!key) { rowObj[h] = undefined; return; }
+        if (mapping.calculated.has(key)) { rowObj[h] = undefined; return; } // skip calculated
+        let v = (obj as any)[key];
+        if (isBlank(v) && fillDefaults) {
+          const dv = SchemaValidator.defaultValue(mapping.defaults.get(key));
+          if (dv !== undefined) v = dv;
+        }
+        if (coerce) v = SchemaValidator.coerce(mapping.types.get(key), v);
+        rowObj[h] = v;
+      });
+      // required validation (ignore calculated)
+      mapping.required.forEach((k) => {
+        if (mapping.calculated.has(k)) return;
+        const header = mapping.headerByKey.get(k) as string;
+        const v = rowObj[header];
+        if (isBlank(v)) throw new Error(`Required value missing for ${String(k)} (${header})`);
+      });
+      rowsToAdd.push(objectToRow(headers, rowObj));
+    }
+
+    // Write in chunks to keep the command payload manageable
+    for (let i = 0; i < rowsToAdd.length; i += chunkSize) {
+      const chunk = rowsToAdd.slice(i, i + chunkSize);
+      table.rows.add(null, chunk);
+      await (table.context as Excel.RequestContext).sync();
+    }
+    return rowsToAdd.length;
   }
 
-  /** Replace all rows with typed collection */
+  /** Replace all rows with typed collection (preserves existing finals for matched rows) */
   async setAll(objs: Partial<T>[], options?: { fillDefaults?: boolean; coerce?: boolean }): Promise<void> {
     const { fillDefaults = true, coerce = true } = options ?? {};
     const headers = await this["headers"]();
     const mapping = await this.mapping();
 
-    const rows = objs.map((obj) => {
+    const table: Excel.Table = (this as any)["table"];
+    const existingBody: any = (table as any).getDataBodyRangeOrNullObject ? (table as any).getDataBodyRangeOrNullObject() : table.getDataBodyRange();
+    existingBody.load(["values", "rowCount", "isNullObject"]);
+    await (table.context as Excel.RequestContext).sync();
+    const existing: any[][] = Boolean(existingBody.isNullObject) ? [] : (existingBody.values || []);
+    const existingCount = Boolean(existingBody.isNullObject) ? 0 : (existingBody.rowCount || existing.length);
+
+    const rows = objs.map((obj, i) => {
       const rowObj: Record<string, any> = {};
-      headers.forEach((h) => {
+      headers.forEach((h, colIndex) => {
         const key = mapping.keyByHeader.get(h);
         if (!key) { rowObj[h] = undefined; return; }
+        if (mapping.calculated.has(key)) { rowObj[h] = undefined; return; }
+        if (mapping.finals.has(key) && i < existingCount) {
+          const prev = existing[i]?.[colIndex];
+          if (!isBlank(prev)) { rowObj[h] = prev; return; }
+        }
         let v = (obj as any)[key];
-        if ((v === undefined || v === null || v === "") && fillDefaults) {
+        if (isBlank(v) && fillDefaults) {
           const dv = SchemaValidator.defaultValue(mapping.defaults.get(key));
           if (dv !== undefined) v = dv;
         }
@@ -529,15 +582,162 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
         rowObj[h] = v;
       });
       mapping.required.forEach((k) => {
+        if (mapping.calculated.has(k)) return;
         const header = mapping.headerByKey.get(k) as string;
         const v = rowObj[header];
-        if (v === undefined || v === null || v === "") {
-          throw new Error(`Required value missing for ${String(k)} (${header})`);
-        }
+        if (isBlank(v)) throw new Error(`Required value missing for ${String(k)} (${header})`);
       });
       return rowObj;
     });
 
     await super.setAll(rows);
+  }
+
+  /** Find first row by typed key/value */
+  async findFirstBy<K extends keyof T>(key: K, value: T[K], opts?: RowFindOptions): Promise<RowMatchTyped<T> | null> {
+    const headers = await this["headers"]();
+    const mapping = await this.mapping();
+    const header = mapping.headerByKey.get(key);
+    if (!header) throw new Error(`Key not mapped to a header: ${String(key)}`);
+
+    const table: Excel.Table = (this as any)["table"];
+    const colRange = table.columns.getItem(header).getDataBodyRange();
+    colRange.load(["values", "rowCount"]);
+    await (table.context as Excel.RequestContext).sync();
+    if ((colRange as any).rowCount === 0) return null;
+
+    const targetType = mapping.types.get(key);
+    const target = SchemaValidator.coerce(targetType, value as any);
+
+    const colValues: any[] = (colRange.values || []).map((r: any[]) => r[0]);
+    const idx = colValues.findIndex((raw) => {
+      const coerced = SchemaValidator.coerce(targetType, raw);
+      return isEqual(coerced, target, opts);
+    });
+    if (idx === -1) return null;
+
+    const body: any = (table as any).getDataBodyRangeOrNullObject ? (table as any).getDataBodyRangeOrNullObject() : table.getDataBodyRange();
+    body.load(["values", "isNullObject"]);
+    await (table.context as Excel.RequestContext).sync();
+
+    const r = (body.values || [])[idx] as any[];
+    const rec: any = {};
+    headers.forEach((h, i) => {
+      const k = mapping.keyByHeader.get(h);
+      if (!k) return;
+      const raw = r[i];
+      rec[k as string] = SchemaValidator.coerce(mapping.types.get(k), raw);
+    });
+
+    const range = table.rows.getItemAt(idx).getRange();
+    mapping.required.forEach((k) => {
+      if (mapping.calculated.has(k)) return;
+      const v = rec[k as string];
+      if (isBlank(v)) throw new Error(`Required column missing/empty: ${String(k)}`);
+    });
+
+    return { index: idx, row: rec as T, range };
+  }
+
+  /** Find all rows by typed key/value */
+  async findAllBy<K extends keyof T>(key: K, value: T[K], opts?: RowFindOptions): Promise<RowMatchTyped<T>[]> {
+    const headers = await this["headers"]();
+    const mapping = await this.mapping();
+    const header = mapping.headerByKey.get(key);
+    if (!header) throw new Error(`Key not mapped to a header: ${String(key)}`);
+
+    const table: Excel.Table = (this as any)["table"];
+    const colRange = table.columns.getItem(header).getDataBodyRange();
+    colRange.load(["values", "rowCount"]);
+    await (table.context as Excel.RequestContext).sync();
+
+    const targetType = mapping.types.get(key);
+    const target = SchemaValidator.coerce(targetType, value as any);
+
+    const colValues: any[] = (colRange.values || []).map((r: any[]) => r[0]);
+
+    const body = table.getDataBodyRange();
+    body.load(["values"]);
+    await (table.context as Excel.RequestContext).sync();
+
+    const out: RowMatchTyped<T>[] = [];
+    colValues.forEach((raw, idx) => {
+      const coerced = SchemaValidator.coerce(targetType, raw);
+      if (isEqual(coerced, target, opts)) {
+        const r = (body.values || [])[idx] as any[];
+        const rec: any = {};
+        headers.forEach((h, i) => {
+          const k = mapping.keyByHeader.get(h);
+          if (!k) return;
+          rec[k as string] = SchemaValidator.coerce(mapping.types.get(k), r[i]);
+        });
+        const range = table.rows.getItemAt(idx).getRange();
+        out.push({ index: idx, row: rec as T, range });
+      }
+    });
+
+    return out;
+  }
+
+  /** Update all rows that match key=value using a patch object. Respects final/calculated. */
+  async updateBy<K extends keyof T>(key: K, value: T[K], patch: Partial<T>, options?: { fillDefaults?: boolean; coerce?: boolean }): Promise<number> {
+    void options;
+    const matches = await this.findAllBy(key, value);
+    if (matches.length === 0) return 0;
+
+    const headers = await this["headers"]();
+    const mapping = await this.mapping();
+    const table: Excel.Table = (this as any)["table"];
+
+    for (const m of matches) {
+      // Merge existing + patch honoring constraints
+      const rowObj: Record<string, any> = {};
+      headers.forEach((h) => {
+        const k = mapping.keyByHeader.get(h);
+        if (!k) { rowObj[h] = undefined; return; }
+        if (mapping.calculated.has(k)) { rowObj[h] = undefined; return; }
+        const incoming = (patch as any)[k];
+        const current = (m.row as any)[k];
+        if (mapping.finals.has(k)) {
+          // Final cannot change if has a non-blank current value
+          if (!isBlank(current) && !isBlank(incoming) && normalizeForCompare(current) !== normalizeForCompare(incoming)) {
+            throw new Error(`Attempt to modify final column ${String(k)} on row ${m.index}`);
+          }
+          rowObj[h] = SchemaValidator.coerce(mapping.types.get(k), current);
+          return;
+        }
+        let v = (incoming !== undefined ? incoming : current);
+        v = SchemaValidator.coerce(mapping.types.get(k), v);
+        rowObj[h] = v;
+      });
+      // Required check (ignore calculated)
+      mapping.required.forEach((k) => {
+        if (mapping.calculated.has(k)) return;
+        const header = mapping.headerByKey.get(k) as string;
+        const v = rowObj[header];
+        if (isBlank(v)) throw new Error(`Required value missing for ${String(k)} (${header}) on row ${m.index}`);
+      });
+      const rowRange = table.rows.getItemAt(m.index).getRange();
+      rowRange.values = [objectToRow(headers, rowObj)];
+      await (table.context as Excel.RequestContext).sync();
+    }
+
+    return matches.length;
+  }
+
+  /** Delete all rows where key=value. */
+  async deleteBy<K extends keyof T>(key: K, value: T[K], opts?: RowFindOptions): Promise<number> {
+    // opts is used in findAllBy
+
+    const matches = await this.findAllBy(key, value, opts);
+    if (matches.length === 0) return 0;
+    const table: Excel.Table = (this as any)["table"];
+    // Delete from bottom to top to keep indices valid
+    const indices = matches.map((m) => m.index).sort((a, b) => b - a);
+    for (const idx of indices) {
+      table.rows.getItemAt(idx).delete();
+      await (table.context as Excel.RequestContext).sync();
+    }
+    return matches.length;
   }
 }

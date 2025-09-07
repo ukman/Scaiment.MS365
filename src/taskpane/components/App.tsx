@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useState } from 'react';
 import { useAuth } from '../../auth/AuthProvider';
 import { Button, Alert, Spinner } from 'react-bootstrap';
-import { TableDefinition, WorkbookORM } from '../../util/data/UniversalRepo';
+import { RowMatchTyped, TableDefinition, WorkbookORM } from '../../util/data/UniversalRepo';
 import { WorkbookSchemaGenerator } from '../../util/data/SchemaGenerator';
 import { Person, personDef } from '../../util/data/DBSchema';
 
@@ -34,7 +34,9 @@ const App: React.FC<AppProps> = ({ title }) => {
   const { getToken } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
-  const [users, setUsers] = useState<User[]>([]);
+  // const [users, setUsers] = useState<Person[]>([]);
+  const [users, setUsers] = useState<Person[]>([]);
+  
 
   // Retry helper function for Graph API throttling
   const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, delay = 1000) => {
@@ -70,7 +72,7 @@ const App: React.FC<AppProps> = ({ title }) => {
   };
 
   
-  const fetchTables = async () => {
+  const addRow = async () => {
     setIsLoading(true);
     setError('');
     try {
@@ -79,14 +81,36 @@ const App: React.FC<AppProps> = ({ title }) => {
         const orm = new WorkbookORM(ctx.workbook);
 
         const users = await orm.tables.getAs<Person>("Person", personDef);
+
+        for(let j = 0; j < 3; j++) {
+        const all : Partial<Person>[] = [];
+        for(let i = 0; i < 100; i++) {
+          const newPerson : Partial<Person> = {
+            id:100 + i,
+            firstName:"John" + j,
+            lastName:"Smith",
+            isActive: true,
+            email:"john.smith@mail.com",
+            createdAt:new Date()
+          };
+          all.push(newPerson);
+        }
+        await users.rows.addMany(all, {fillDefaults:true});
+      }
+
+        /*
         // const p222 : Person = {} as any;
     
         // Read typed records
         // const t0 = new Date().getTime();
-        // const list: User[] = await users.rows.getAll();    
+        const list1: Person[] = await users.rows.getAll();    
+        // setUsers(list1);
         // const t = (new Date()).getTime() - t0;
-        // setUsers(list);
-
+        const list2 : RowMatchTyped<Person>[] = await users.rows.findAllBy("id", 1);
+        // setUsers(list2);
+        const list : Person[] = list2.map(rm => rm.row);
+        setUsers(list);
+        // list2.map(rm => rm.)
 
 
         const gen = new WorkbookSchemaGenerator(ctx.workbook);
@@ -101,6 +125,7 @@ const App: React.FC<AppProps> = ({ title }) => {
         
         
         // setError("Success : " + JSON.stringify(list) + " t = " + t + " ms");  
+        */
       });
     } catch (err) {
       setError(
@@ -158,11 +183,11 @@ const App: React.FC<AppProps> = ({ title }) => {
       </Button>
       <Button
         variant="primary"
-        onClick={fetchTables}
+        onClick={addRow}
         disabled={isLoading}
         className="w-100"
       >
-        {isLoading ? 'Processing...' : 'Get Tables'}
+        {isLoading ? 'Processing...' : 'Add Row'}
       </Button>
 
       <table className="min-w-full text-sm">
@@ -184,11 +209,11 @@ const App: React.FC<AppProps> = ({ title }) => {
         </thead>
         <tbody>
         {users.map((u) => (
-          <tr key={u.Id} className="border-t">
-            <td>{u.Id}</td>
-            <td>{u.FullName}</td>
-            <td>{u.Email ?? ""}</td>
-            <td>{u.IsActive ? "Yes" : "No"}</td>
+          <tr key={u.id} className="border-t">
+            <td>{u.id}</td>
+            <td>{u.fullName}</td>
+            <td>{u.email ?? ""}</td>
+            <td>{u.isActive ? "Yes" : "No"}</td>
           </tr>
           ))}
         </tbody>
