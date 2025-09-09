@@ -14,13 +14,23 @@
   </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>
+    <Host Name="Mailbox" />
   </Hosts>
   <DefaultSettings>
     <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
   </DefaultSettings>
-  <Permissions>ReadWriteDocument</Permissions>
+  <Permissions>ReadWriteMailbox</Permissions>
+  
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Requirements>
+      <bt:Sets DefaultMinVersion="1.3">
+        <bt:Set Name="Mailbox" />
+        <bt:Set Name="ExcelApi" MinVersion="1.1"/>
+      </bt:Sets>
+    </Requirements>
+    
     <Hosts>
+      <!-- Excel Host -->
       <Host xsi:type="Workbook">
         <DesktopFormFactor>
           <GetStarted>
@@ -59,7 +69,65 @@
           </ExtensionPoint>
         </DesktopFormFactor>
       </Host>
+
+      <!-- Outlook Host -->
+      <!--
+      <Host xsi:type="MailHost">
+        <DesktopFormFactor>
+          <ExtensionPoint xsi:type="MessageReadCommandSurface">
+            <OfficeTab id="TabDefault">
+              <Group id="msgReadGroup">
+                <Label resid="GroupLabel" />
+                <Control xsi:type="Button" id="msgReadOpenPaneButton">
+                  <Label resid="TaskpaneButton.Label" />
+                  <Supertip>
+                    <Title resid="TaskpaneButton.Label" />
+                    <Description resid="TaskpaneButton.Tooltip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16x16" />
+                    <bt:Image size="32" resid="Icon.32x32" />
+                    <bt:Image size="80" resid="Icon.80x80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>ButtonId1</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url" />
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+
+          < ! - - Добавим также для Compose - - >
+
+          <ExtensionPoint xsi:type="MessageComposeCommandSurface">
+            <OfficeTab id="TabDefault">
+              <Group id="msgComposeGroup">
+                <Label resid="GroupLabel" />
+                <Control xsi:type="Button" id="msgComposeOpenPaneButton">
+                  <Label resid="TaskpaneButton.Label" />
+                  <Supertip>
+                    <Title resid="TaskpaneButton.Label" />
+                    <Description resid="TaskpaneButton.Tooltip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16x16" />
+                    <bt:Image size="32" resid="Icon.32x32" />
+                    <bt:Image size="80" resid="Icon.80x80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>ButtonId2</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url" />
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>      
+          -->
     </Hosts>
+    
     <Resources>
       <bt:Images>
         <bt:Image id="Icon.16x16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
@@ -75,23 +143,24 @@
         <bt:String id="GetStarted.Title" DefaultValue="Get started with your sample add-in!"/>
         <bt:String id="CommandsGroup.Label" DefaultValue="Commands Group"/>
         <bt:String id="TaskpaneButton.Label" DefaultValue="Show Task Pane"/>
+        <bt:String id="GroupLabel" DefaultValue="Scaiment Group"/>
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String id="GetStarted.Description" DefaultValue="Your sample add-in loaded successfully. Go to the HOME tab and click the 'Show Task Pane' button to get started."/>
         <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Click to Show a Taskpane"/>
       </bt:LongStrings>
     </Resources>
+    
     <WebApplicationInfo>
-      <Id>dbfefe9a-a7d6-45ce-8eee-2c3df73efe50</Id>  <!-- Application (client) ID из Entra Overview -->
-      <Resource>api://localhost:3000/dbfefe9a-a7d6-45ce-8eee-2c3df73efe50</Resource>  <!-- Application ID URI из Expose an API -->
+      <Id>dbfefe9a-a7d6-45ce-8eee-2c3df73efe50</Id>
+      <Resource>api://localhost:3000/dbfefe9a-a7d6-45ce-8eee-2c3df73efe50</Resource>
       <Scopes>
-        <Scope>openid</Scope>  <!-- Базовый для ID token -->
-        <Scope>profile</Scope>  <!-- Для user info -->
-        <Scope>email</Scope>   <!-- Для email address -->
-        <Scope>https://graph.microsoft.com/Mail.Read</Scope>  <!-- Полный URI для Graph scopes -->
+        <Scope>openid</Scope>
+        <Scope>profile</Scope>
+        <Scope>email</Scope>
+        <Scope>https://graph.microsoft.com/Mail.Read</Scope>
         <Scope>https://graph.microsoft.com/Mail.ReadWrite</Scope>
         <Scope>https://graph.microsoft.com/Files.ReadWrite</Scope>
-        <!-- Добавьте другие, если нужно, например: https://graph.microsoft.com/User.Read -->
       </Scopes>
     </WebApplicationInfo>    
   </VersionOverrides>

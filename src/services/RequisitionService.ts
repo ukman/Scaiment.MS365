@@ -2,7 +2,7 @@ import { Person, personDef } from "../util/data/DBSchema";
 import { TableRepository, TypedTable, WorkbookORM } from "../util/data/UniversalRepo";
 
 export class RequisitionService {
-    constructor (personRepo: TypedTable<Person>) {
+    constructor (private personRepo: TypedTable<Person>) {
     }
 
     public static async create(ctx : Excel.RequestContext) : Promise<RequisitionService> {
@@ -12,6 +12,11 @@ export class RequisitionService {
 
         const service = new RequisitionService(personRepo);
         return service;
+    }
+
+    public async findById(id : number) : Promise<Person> {
+        const res = this.personRepo.rows.findFirstBy("id", id);
+        return (await res).row;     
     }
 
 }

@@ -20,7 +20,7 @@ export type TableDefinition<T extends Record<string, any>> = {
       required?: boolean;
       default?: DefaultValue<T[K]>;
       calculated?: boolean;
-      referenceTo?: string;
+      // referenceTo?: string;
       final?: boolean;
     }
   };

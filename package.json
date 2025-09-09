@@ -28,8 +28,9 @@
   "dependencies": {
     "@azure/msal-browser": "^4.22.0",
     "@azure/msal-react": "^3.0.19",
-    "@fluentui/react-components": "^9.55.1",
-    "@fluentui/react-icons": "^2.0.264",
+    "@fluentui/font-icons-mdl2": "^8.5.63",
+    "@fluentui/react": "^8.123.5",
+    "@fluentui/react-hooks": "^8.8.19",
     "@microsoft/office-js": "^1.1.110",
     "bootstrap": "^5.3.8",
     "core-js": "^3.36.0",

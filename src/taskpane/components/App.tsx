@@ -1,16 +1,66 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { useAuth } from '../../auth/AuthProvider';
-import { Button, Alert, Spinner } from 'react-bootstrap';
+// import { Button, Alert, Spinner } from 'react-bootstrap';
+import { PrimaryButton, TextField, Spinner, Stack, MessageBar } from '@fluentui/react';
 import { RowMatchTyped, TableDefinition, WorkbookORM } from '../../util/data/UniversalRepo';
 import { WorkbookSchemaGenerator } from '../../util/data/SchemaGenerator';
 import { Person, personDef } from '../../util/data/DBSchema';
-
+import { DetailsList, SelectionMode, IColumn, DetailsListLayoutMode, Pivot, PivotItem } from '@fluentui/react';
+import Dashboard from './Dashboard';
+import Pulse from './Pulse';
+import Drafts from './Drafts';
 
 interface AppProps {
   title: string;
 }
 
+const items = [
+  { id: 1, name: 'Кабель NYM 3x1.5', quantity: 100, unit : "метр" },
+  { id: 2, name: 'Подрозетник синий', quantity: 50, unit : "штука" },
+  { id: 3, name: 'Розетка', quantity: 25, unit : "штука"  },
+  { id: 4, name: 'Автомат 16А', quantity: 5, unit : "штука"  },
+  { id: 5, name: 'Автомат 25А', quantity: 3, unit : "штука"  },
+  { id: 5, name: 'УЗО 40А', quantity: 3, unit : "штука"  }
+];
+
+// Определите колонки таблицы
+const columns: IColumn[] = [
+  {
+    key: 'column1',
+    name: 'ID',
+    fieldName: 'id',
+    minWidth: 30,
+    maxWidth: 30,
+    isResizable: false,
+  },
+  {
+    key: 'column2',
+    name: 'Название',
+    fieldName: 'name',
+    minWidth: 100,
+    maxWidth: 200,
+    isResizable: true,
+  },
+  {
+    key: 'column3',
+    name: 'Ед.Изм.',
+    fieldName: 'unit',
+    minWidth: 60,
+    maxWidth: 80,
+    isResizable: true,
+  },
+  {
+    key: 'column4',
+    name: 'Количество',
+    fieldName: 'quantity',
+    minWidth: 20,
+    maxWidth: 30,
+    isResizable: true,
+  },
+];
+
+/*
 type User = { Id: number; FirstName: string; LastName: string; FullName : string; Email: string; IsActive: boolean; CreatedAt: Date };
 
 const userDef: TableDefinition<User> = {
@@ -24,11 +74,11 @@ const userDef: TableDefinition<User> = {
     CreatedAt:{ type: "date",    default: () => new Date() },
   },
   // Optional: map keys to Excel header names if they differ (default = same name)
-  names: { /* Email: "E-mail" */ },
+  names: { /* Email: "E-mail" * / },
   // Optional: control column order when writing (defaults to header order)
   order: ["Id", "FirstName", "LastName", "FullName", "Email", "IsActive", "CreatedAt"],
 };
-
+*/
 
 const App: React.FC<AppProps> = ({ title }) => {
   const { getToken } = useAuth();
@@ -91,7 +141,7 @@ const App: React.FC<AppProps> = ({ title }) => {
             lastName:"Smith",
             isActive: true,
             email:"john.smith@mail.com",
-            createdAt:new Date()
+            createdAt: new Date()
           };
           all.push(newPerson);
         }
@@ -168,29 +218,75 @@ const App: React.FC<AppProps> = ({ title }) => {
     }
   };
 
+    const [selectedKey, setSelectedKey] = useState('item1'); // Состояние для выбранного пункта
+  
+    const handleLinkClick = (item) => {
+      setSelectedKey(item.props.itemKey);
+    };  
+
   return (
     <div className="container p-3">
+    <Stack tokens={{ childrenGap: 10 }} styles={{ root: { height: '100vh', width: '100%' } }}>
+      {/* Горизонтальная навигация вверху */}
+      <Pivot
+        aria-label="Horizontal Navigation"
+        selectedKey={selectedKey}
+        onLinkClick={handleLinkClick}
+        styles={{
+          root: { display: 'flex', justifyContent: 'center' }, // Центрирование, если нужно
+          link: { minWidth: 80 }, // Минимальная ширина кнопок для 6 пунктов
+        }}
+      >
+        <PivotItem headerText="Dashboard" itemKey="dashboard" />
+        <PivotItem headerText="Pulse" itemKey="pulse" />
+        <PivotItem headerText="Drafts" itemKey="drafts" />
+        <PivotItem headerText="Options" itemKey="options" />
+      </Pivot>
+
+      {/* Контент, который меняется в зависимости от выбранного пункта */}
+      <div style={{ padding: 16 }}>
+        {selectedKey === 'dashboard' && <Dashboard title={'Hello'}/>}
+        {selectedKey === 'pulse' && <Pulse title={'Hello'}/>}
+        {selectedKey === 'drafts' && <Drafts title={'Hello'}/>}
+        {/* Добавьте аналогично для остальных */}
+      </div>
+    </Stack>
+
       <h1 className="text-center mb-4">{title}</h1>
-      {error && <Alert variant="danger">{error}</Alert>}
-      {isLoading && <Spinner animation="border" className="d-block mx-auto" />}
-      <Button
-        variant="primary"
+      {error && <MessageBar  
+      // variant="danger
+      >{error}</MessageBar>}
+      {isLoading && <Spinner 
+      // animation="border" 
+      className="d-block mx-auto" />}
+      <PrimaryButton
+        // variant="primary"
         onClick={fetchLatestEmail}
         disabled={isLoading}
         className="w-100"
       >
         {isLoading ? 'Processing...' : 'Get Latest Email'}
-      </Button>
-      <Button
-        variant="primary"
+      </PrimaryButton>
+      <PrimaryButton
+        // variant="primary"
         onClick={addRow}
         disabled={isLoading}
         className="w-100"
       >
         {isLoading ? 'Processing...' : 'Add Row'}
-      </Button>
+      </PrimaryButton>
 
-      <table className="min-w-full text-sm">
+    <Stack tokens={{ childrenGap: 10 }}>
+      <DetailsList
+        items={items}
+        columns={columns}
+        selectionMode={SelectionMode.none} // Отключить выбор строк, если не нужен
+        setKey="set"
+        layoutMode={DetailsListLayoutMode.justified}
+      />
+    </Stack>      
+
+      {/* <table className="min-w-full text-sm">
         <thead className="bg-gray-50">
           <tr>
           <th>
@@ -218,7 +314,8 @@ const App: React.FC<AppProps> = ({ title }) => {
           ))}
         </tbody>
 
-      </table>
+      </table> */}
+      
     </div>
   );
 };

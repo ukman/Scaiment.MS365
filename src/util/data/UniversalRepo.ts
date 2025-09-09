@@ -31,7 +31,7 @@ export type DefaultValue<T> = T | (() => T);
 
 export type TableDefinition<T extends Record<string, any>> = {
   /** Column contracts (+ optional metadata) */
-  columns: { [K in keyof T]-?: { type?: ColumnType; required?: boolean; default?: DefaultValue<T[K]>; final?: boolean; calculated?: boolean } };
+  columns: { [K in keyof T]-?: { type?: ColumnType; required?: boolean; default?: DefaultValue<T[K]>; final?: boolean; calculated?: boolean; referenceTo?: string;} };
   /** Optional: mapping from property key → Excel header name (if different) */
   names?: Partial<Record<keyof T, string>>;
   /** Optional: write order for columns; read always respects actual header order */
