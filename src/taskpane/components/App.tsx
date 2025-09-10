@@ -10,6 +10,7 @@ import { DetailsList, SelectionMode, IColumn, DetailsListLayoutMode, Pivot, Pivo
 import Dashboard from './Dashboard';
 import Pulse from './Pulse';
 import Drafts from './Drafts';
+import Mail from './Mail';
 
 interface AppProps {
   title: string;
@@ -225,7 +226,7 @@ const App: React.FC<AppProps> = ({ title }) => {
     };  
 
   return (
-    <div className="container p-3">
+    <div className="container p-3 ">
     <Stack tokens={{ childrenGap: 10 }} styles={{ root: { height: '100vh', width: '100%' } }}>
       {/* Горизонтальная навигация вверху */}
       <Pivot
@@ -241,80 +242,18 @@ const App: React.FC<AppProps> = ({ title }) => {
         <PivotItem headerText="Pulse" itemKey="pulse" />
         <PivotItem headerText="Drafts" itemKey="drafts" />
         <PivotItem headerText="Options" itemKey="options" />
+        <PivotItem headerText="Mail" itemKey="mail" />
       </Pivot>
 
       {/* Контент, который меняется в зависимости от выбранного пункта */}
       <div style={{ padding: 16 }}>
-        {selectedKey === 'dashboard' && <Dashboard title={'Hello'}/>}
-        {selectedKey === 'pulse' && <Pulse title={'Hello'}/>}
+        {selectedKey === 'dashboard' && <Dashboard title={title}/>}
+        {selectedKey === 'pulse' && <Pulse title={'Scaiment'}/>}
         {selectedKey === 'drafts' && <Drafts title={'Hello'}/>}
+        {selectedKey === 'mail' && <Mail title={'Hello'}/>}
         {/* Добавьте аналогично для остальных */}
       </div>
     </Stack>
-
-      <h1 className="text-center mb-4">{title}</h1>
-      {error && <MessageBar  
-      // variant="danger
-      >{error}</MessageBar>}
-      {isLoading && <Spinner 
-      // animation="border" 
-      className="d-block mx-auto" />}
-      <PrimaryButton
-        // variant="primary"
-        onClick={fetchLatestEmail}
-        disabled={isLoading}
-        className="w-100"
-      >
-        {isLoading ? 'Processing...' : 'Get Latest Email'}
-      </PrimaryButton>
-      <PrimaryButton
-        // variant="primary"
-        onClick={addRow}
-        disabled={isLoading}
-        className="w-100"
-      >
-        {isLoading ? 'Processing...' : 'Add Row'}
-      </PrimaryButton>
-
-    <Stack tokens={{ childrenGap: 10 }}>
-      <DetailsList
-        items={items}
-        columns={columns}
-        selectionMode={SelectionMode.none} // Отключить выбор строк, если не нужен
-        setKey="set"
-        layoutMode={DetailsListLayoutMode.justified}
-      />
-    </Stack>      
-
-      {/* <table className="min-w-full text-sm">
-        <thead className="bg-gray-50">
-          <tr>
-          <th>
-              ID
-            </th>
-            <th>
-              FullName
-            </th>
-            <th>
-              Email
-            </th>
-            <th>
-              Active
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-        {users.map((u) => (
-          <tr key={u.id} className="border-t">
-            <td>{u.id}</td>
-            <td>{u.fullName}</td>
-            <td>{u.email ?? ""}</td>
-            <td>{u.isActive ? "Yes" : "No"}</td>
-          </tr>
-          ))}
-        </tbody>
-
-      </table> */}
       
     </div>
   );

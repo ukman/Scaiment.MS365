@@ -7,7 +7,7 @@ export interface Requisition {
   name: string;
   createdAt: Date;
   createdBy: number;
-  dueDate: number;
+  dueDate: Date;
   projectId: number;
   projectName: string;
 }

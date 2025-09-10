@@ -5,6 +5,7 @@ import { WorkbookSchemaGenerator } from "../../util/data/SchemaGenerator";
 import { WorkbookORM } from "../../util/data/UniversalRepo";
 
 
+
 export interface DraftsProps {
     title: string;
 }
@@ -14,7 +15,7 @@ const Drafts: React.FC<DraftsProps> = (props: DraftsProps) => {
     const [schema, setSchema2] = useState<string>('');
 
     async function generateSchema() {
-        await Excel.run(async (ctx) => {
+        await Excel.run(async (ctx) => {            
             const orm = new WorkbookORM(ctx.workbook);
             const gen = new WorkbookSchemaGenerator(ctx.workbook);
             const out = await gen.generateTypeScript({
@@ -28,6 +29,7 @@ const Drafts: React.FC<DraftsProps> = (props: DraftsProps) => {
         });
     }
 
+    
     return (
         <div>
             Drafts {title}
