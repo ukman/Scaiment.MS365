@@ -11,6 +11,7 @@ import Dashboard from './Dashboard';
 import Pulse from './Pulse';
 import Drafts from './Drafts';
 import Mail from './Mail';
+import OutlookEmails from './OutlookEmail';
 
 interface AppProps {
   title: string;
@@ -250,7 +251,7 @@ const App: React.FC<AppProps> = ({ title }) => {
         {selectedKey === 'dashboard' && <Dashboard title={title}/>}
         {selectedKey === 'pulse' && <Pulse title={'Scaiment'}/>}
         {selectedKey === 'drafts' && <Drafts title={'Hello'}/>}
-        {selectedKey === 'mail' && <Mail title={'Hello'}/>}
+        {selectedKey === 'mail' && <OutlookEmails clientId='dbfefe9a-a7d6-45ce-8eee-2c3df73efe50'/>}
         {/* Добавьте аналогично для остальных */}
       </div>
     </Stack>
