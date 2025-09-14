@@ -506,7 +506,9 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
     });
 
     await super.add(rowObj);
-  }  /** Bulk-insert: add many typed rows efficiently (single mapping/headers, chunked writes). */
+  }  
+  
+  /** Bulk-insert: add many typed rows efficiently (single mapping/headers, chunked writes). */
   async addMany(objs: Partial<T>[], options?: { fillDefaults?: boolean; coerce?: boolean; chunkSize?: number }): Promise<number> {
     if (!objs || objs.length === 0) return 0;
     const { fillDefaults = true, coerce = true, chunkSize = 500 } = options ?? {};

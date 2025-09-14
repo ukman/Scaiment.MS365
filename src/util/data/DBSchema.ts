@@ -261,7 +261,7 @@ export const roleDef: TableDefinition<Role> = {
   order: ["id", "roleId", "roleName"]
 };
 
-const DB_TABLE_NAME_TO_DEF_MAP = {
+export const DB_TABLE_NAME_TO_DEF_MAP = {
   "Requisition": requisitionDef,
   "RequisitionItem": requisitionItemDef,
   "RequisitionApproval": requisitionApprovalDef,
