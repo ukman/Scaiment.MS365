@@ -131,7 +131,7 @@ function genFakeRows(count = 60): Requisition[] {
       // risk: "Low",
       // createdBy: owners[Math.floor(Math.random() * owners.length)],
       // lastUpdate: toISO(addDays(created, Math.floor(Math.random() * 15))),
-    };
+    } as Requisition;
     // row.risk = deriveRisk(row.status, row.neededBy);
     return row;
   });

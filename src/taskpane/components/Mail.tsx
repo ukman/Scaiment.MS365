@@ -4,8 +4,6 @@ import { PrimaryButton } from '@fluentui/react';
 import { WorkbookSchemaGenerator } from "../../util/data/SchemaGenerator";
 import { WorkbookORM } from "../../util/data/UniversalRepo";
 
-
-
 export interface DraftsProps {
     title: string;
 }

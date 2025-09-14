@@ -12,6 +12,7 @@ import Pulse from './Pulse';
 import Drafts from './Drafts';
 import Mail from './Mail';
 import OutlookEmails from './OutlookEmail';
+import Test from './TestFunc';
 
 interface AppProps {
   title: string;
@@ -244,6 +245,7 @@ const App: React.FC<AppProps> = ({ title }) => {
         <PivotItem headerText="Drafts" itemKey="drafts" />
         <PivotItem headerText="Options" itemKey="options" />
         <PivotItem headerText="Mail" itemKey="mail" />
+        <PivotItem headerText="Test" itemKey="test" />
       </Pivot>
 
       {/* Контент, который меняется в зависимости от выбранного пункта */}
@@ -252,6 +254,7 @@ const App: React.FC<AppProps> = ({ title }) => {
         {selectedKey === 'pulse' && <Pulse title={'Scaiment'}/>}
         {selectedKey === 'drafts' && <Drafts title={'Hello'}/>}
         {selectedKey === 'mail' && <OutlookEmails clientId='dbfefe9a-a7d6-45ce-8eee-2c3df73efe50'/>}
+        {selectedKey === 'test' && <Test title='Parse Data'/>}
         {/* Добавьте аналогично для остальных */}
       </div>
     </Stack>
