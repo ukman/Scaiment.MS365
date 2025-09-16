@@ -1,4 +1,7 @@
 /// <reference types="office-js" />
+
+import { excelLog } from "../Logs";
+
 /*
   Excel Workbook ORM (metadata + typed CRUD for Tables)
   ----------------------------------------------------
@@ -485,6 +488,17 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
     const mapping = await this.mapping();
 
     const rowObj: Record<string, any> = {};
+
+    await excelLog("before Autoincrement");
+
+    // Autoincrement
+    const idKey: keyof T = 'id' as keyof T;
+    if (isBlank((obj as any)[idKey])) {
+      const maxId = await this.getMaxId();
+      (obj as any)[idKey] = maxId + 1;
+    }
+    await excelLog("before headers.forEach maxId = " + (obj as any)[idKey]);
+
     headers.forEach((h) => {
       const key = mapping.keyByHeader.get(h);
       if (!key) { rowObj[h] = undefined; return; }
@@ -505,6 +519,7 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
       if (isBlank(v)) throw new Error(`Required value missing for ${String(k)} (${header})`);
     });
 
+    excelLog("rowObj before add : " + JSON.stringify(rowObj));
     await super.add(rowObj);
   }  
   
@@ -518,8 +533,16 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
     const table: Excel.Table = (this as any)["table"];
 
     const rowsToAdd: any[][] = [];
+    
+    let currentId = await this.getMaxId() + 1;
 
     for (const obj of objs) {
+      // Autoincrement
+      const idKey: keyof T = 'id' as keyof T;
+      if (isBlank((obj as any)[idKey])) {
+        (obj as any)[idKey] = currentId++;
+      }
+
       const rowObj: Record<string, any> = {};
       headers.forEach((h) => {
         const key = mapping.keyByHeader.get(h);
@@ -742,4 +765,37 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
     }
     return matches.length;
   }
+
+  async getMaxId(): Promise<number> {
+    const mapping = await this.mapping();
+    const idKey: keyof T = 'id' as keyof T; // Предполагаем ключ 'id'; можно сделать параметром если нужно
+  
+    if (!mapping.headerByKey.has(idKey)) {
+      throw new Error(`No column mapped for key "${String(idKey)}"`);
+    }
+  
+    const type = mapping.types.get(idKey);
+    if (type !== 'number') {
+      throw new Error(`ID column "${String(idKey)}" must be of type "number"`);
+    }
+  
+    const header = mapping.headerByKey.get(idKey)!;
+    const table: Excel.Table = (this as any)["table"]; // this.table из RowRepository
+  
+    const colRange = table.columns.getItem(header).getDataBodyRange();
+    colRange.load(["values", "rowCount"]);
+    await table.context.sync();
+  
+    if (colRange.rowCount === 0) {
+      return 0; // Таблица пустая, начинаем с 1
+    }
+  
+    const values: number[] = colRange.values
+      .flat()
+      .map(v => Number(v))
+      .filter(v => !isNaN(v) && Number.isFinite(v));
+  
+    const max = values.length > 0 ? Math.max(...values) : 0;
+    return max;
+  }  
 }
