@@ -16,7 +16,8 @@ export class ExcelService {
      */
     public async getNamedRangesWithValues(sheetName : string): Promise<{ [key: string]: any }> {
         try {
-                const worksheet = this.context.workbook.worksheets.getActiveWorksheet();
+                const worksheet = this.context.workbook.worksheets.getItem(sheetName);
+               
                 worksheet.load("name");
                 
                 const workbookNames = this.context.workbook.names;
@@ -255,6 +256,122 @@ public convertExcelSerialToDate(serialNumber: number): Date | null {
       };
     }
   }
+
+    // Заполняет именованные поля в sheetName данными из data.
+    public async fillSheet(context: Excel.RequestContext, data: any, sheetName: string) {
+        // Получаем указанный лист
+        const sheet = context.workbook.worksheets.getItemOrNullObject(sheetName);
+        await context.sync();
+  
+        if (sheet.isNullObject) {
+          throw new Error(`Лист с именем "${sheetName}" не найден.`);
+        }
+  
+        // Получаем все именованные диапазоны в области действия листа
+        const namedItems = sheet.names;
+        namedItems.load("name, value");
+        await context.sync();
+  
+        // Перебираем все именованные диапазоны
+        for (const namedItem of namedItems.items) {
+          const rangeName = namedItem.name;
+  
+          // Проверяем, есть ли поле с таким именем в JSON-объекте
+          if (data.hasOwnProperty(rangeName)) {
+            const range = namedItem.getRange();
+            const value = data[rangeName];
+  
+            // Записываем значение в диапазон
+            range.values = [[value]];
+  
+            // Если значение — это дата, устанавливаем соответствующий формат
+            if (value instanceof Date) {
+              range.numberFormat = [["dd.mm.yyyy hh:mm:ss"]];
+            }
+          }
+          // Если поля нет в JSON, ничего не делаем (пропускаем)
+        }
+  
+        // Синхронизируем изменения
+        await context.sync();
+  
+        // console.log(`Именованные диапазоны на листе "${sheetName}" заполнены данными из JSON.`);
+    }
+
+
+/**
+ * Ищет все листы, содержащие именованный диапазон "__requisitionDraftMarker".
+ * Учитывает:
+ *  - Имя на уровне книги (Workbook Names)
+ *  - Имя на уровне листа (Worksheet Names)
+ * Возвращает уникальный список имен листов.
+ */
+    public async findSheetsWithMarker(ctx : Excel.RequestContext, markerName : string): Promise<string[]> {
+        // const MARKER_NAME = "__requisitionDraftMarker";
+  
+        const wb = ctx.workbook;
+        const result = new Set<string>();
+    
+        // Загрузим коллекцию листов (имена нужны для возврата и для обхода)
+        const worksheets = wb.worksheets;
+        worksheets.load("items/name");
+        // Проверим наличие имени на уровне книги
+        const wbNamed = wb.names.getItemOrNullObject(markerName);
+    
+        await ctx.sync();
+    
+        // Если имя существует на уровне книги — получим его диапазон и лист
+        /*
+        if (!wbNamed.isNullObject) {
+            // На всякий случай убедимся, что это именно Range
+            wbNamed.load("type");
+            await ctx.sync();
+    
+            if (wbNamed.type === Excel.NamedItemType.range) {
+            const r = wbNamed.getRange();
+            r.load("worksheet/name");
+            await ctx.sync();
+            result.add(r.worksheet.name);
+            }
+        }
+            */
+    
+        // Теперь проверим имена на уровне каждого листа
+        // Сначала создаём "прокси" объекты для всех листов
+        const perSheetNamedItems = worksheets.items.map((ws) => {
+            const named = ws.names.getItemOrNullObject(markerName);
+            return { ws, named };
+        });
+    
+        // Выполним sync, чтобы узнать какие из них существуют
+        await ctx.sync();
+    
+        // Для существующих имен получим соответствующие диапазоны и листы
+        const rangesToLoad: Excel.Range[] = [];
+        for (const { named } of perSheetNamedItems) {
+            if (named && !named.isNullObject) {
+            // Убедимся, что это Range
+            named.load("type");
+            }
+        }
+        await ctx.sync();
+    
+        for (const { named } of perSheetNamedItems) {
+            if (named && !named.isNullObject && named.type === Excel.NamedItemType.range) {
+            rangesToLoad.push(named.getRange());
+            }
+        }
+    
+        if (rangesToLoad.length > 0) {
+            rangesToLoad.forEach((r) => r.load("worksheet/name"));
+            await ctx.sync();
+            rangesToLoad.forEach((r) => result.add(r.worksheet.name));
+        }
+    
+        return Array.from(result);
+    }
+  
+  
   /*
   // Пример использования:
   async function example() {

@@ -9,15 +9,18 @@ export class PersonService {
         const orm = new WorkbookORM(ctx.workbook);
 
         const personRepo = await orm.tables.getAs<Person>("Person", personDef);
-        personRepo.rows.findAllBy("id", 109);
 
         const service = new PersonService(personRepo);
         return service;
     }
 
-    /*
-    public findPerson(id : number) : Person {
-        return this.personRepo.findById(id);
+    public async getCurrentUser() : Promise<Person> {
+        // TODO add real current user 
+        return this.findPersonById(1);
     }
-        */
+
+    public async findPersonById(id : number) : Promise<Person> {
+        const person = this.personRepo.rows.findFirstBy("id", id);
+        return (await person).row;
+    }
 }

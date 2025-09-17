@@ -355,7 +355,10 @@ export class RowRepository {
 }
 
 // ========================= Typed Layer =========================
-class SchemaValidator {
+export class SchemaValidator {
+
+  // Изначальный метод преобразования 
+  // Depracated
   static coerce(type: ColumnType | undefined, value: any): any {
     if (value == null || type == null || type === "any") return value;
     switch (type) {
@@ -389,6 +392,62 @@ class SchemaValidator {
         return value;
     }
   }
+
+    // Преобразование из Excel-значения в TS-тип (бывший coerce, используется при чтении)
+    static fromExcelValue(type: ColumnType | undefined, value: any): any {
+      if (value == null || type == null || type === "any") return value;
+      switch (type) {
+        case "string":
+          return value == null ? value : String(value);
+        case "number": {
+          if (value instanceof Date) return value.getTime();
+          const n = Number(value);
+          if (Number.isNaN(n)) throw new Error(`Cannot coerce value "${value}" to number`);
+          return n;
+        }
+        case "boolean":
+          if (typeof value === "boolean") return value;
+          if (typeof value === "number") return value !== 0;
+          if (typeof value === "string") return /^(true|1|yes|y)$/i.test(value.trim());
+          return Boolean(value);
+        case "date": {
+          if (value instanceof Date) return value;
+          // Excel might provide serial numbers or ISO strings
+          if (typeof value === "number") {
+            // Excel date serial number (assuming Windows 1900 system)
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+            const ms = value * 24 * 60 * 60 * 1000;
+            return new Date(excelEpoch.getTime() + ms);
+          }
+          const d = new Date(value);
+          if (isNaN(d.getTime())) throw new Error(`Cannot coerce value "${value}" to date`);
+          return d;
+        }
+        default:
+          return value;
+      }
+    }
+  
+    // Преобразование из TS-значения в Excel-совместимое (используется при записи)
+    static toExcelValue(type: ColumnType | undefined, value: any): any {
+      if (value == null || type == null || type === "any") return value;
+      // Сначала принудительно преобразуем в целевой TS-тип
+      const tsValue = this.fromExcelValue(type, value);
+      switch (type) {
+        case "date": {
+          if (tsValue instanceof Date) {
+            // Конвертируем Date в Excel serial number
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30)).getTime();
+            const ms = tsValue.getTime() - excelEpoch;
+            return ms / (24 * 60 * 60 * 1000);
+          }
+          // Если не Date после coerce, вернём как есть (но это ошибка)
+          return tsValue;
+        }
+        default:
+          return tsValue; // Для других типов просто возвращаем coerced значение
+      }
+    }
 
   static defaultValue<T>(dv: DefaultValue<T> | undefined): T | undefined {
     if (dv === undefined) return undefined;
@@ -468,7 +527,7 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
         const key = mapping.keyByHeader.get(h);
         if (!key) return; // header not in definition — ignore
         const raw = r[i];
-        rec[key as string] = coerce ? SchemaValidator.coerce(mapping.types.get(key), raw) : raw;
+        rec[key as string] = coerce ? SchemaValidator.fromExcelValue(mapping.types.get(key), raw) : raw;
       });
       // required checks (ignore calculated)
       mapping.required.forEach((k) => {
@@ -508,7 +567,7 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
         const dv = SchemaValidator.defaultValue(mapping.defaults.get(key));
         if (dv !== undefined) v = dv;
       }
-      if (coerce) v = SchemaValidator.coerce(mapping.types.get(key), v);
+      if (coerce) v = SchemaValidator.toExcelValue(mapping.types.get(key), v);
       rowObj[h] = v;
     });
     // required validation (ignore calculated)
@@ -553,7 +612,7 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
           const dv = SchemaValidator.defaultValue(mapping.defaults.get(key));
           if (dv !== undefined) v = dv;
         }
-        if (coerce) v = SchemaValidator.coerce(mapping.types.get(key), v);
+        if (coerce) v = SchemaValidator.toExcelValue(mapping.types.get(key), v);
         rowObj[h] = v;
       });
       // required validation (ignore calculated)
@@ -603,7 +662,7 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
           const dv = SchemaValidator.defaultValue(mapping.defaults.get(key));
           if (dv !== undefined) v = dv;
         }
-        if (coerce) v = SchemaValidator.coerce(mapping.types.get(key), v);
+        if (coerce) v = SchemaValidator.toExcelValue(mapping.types.get(key), v);
         rowObj[h] = v;
       });
       mapping.required.forEach((k) => {
@@ -632,11 +691,11 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
     if ((colRange as any).rowCount === 0) return null;
 
     const targetType = mapping.types.get(key);
-    const target = SchemaValidator.coerce(targetType, value as any);
+    const target = SchemaValidator.fromExcelValue(targetType, value as any);
 
     const colValues: any[] = (colRange.values || []).map((r: any[]) => r[0]);
     const idx = colValues.findIndex((raw) => {
-      const coerced = SchemaValidator.coerce(targetType, raw);
+      const coerced = SchemaValidator.fromExcelValue(targetType, raw);
       return isEqual(coerced, target, opts);
     });
     if (idx === -1) return null;
@@ -651,7 +710,7 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
       const k = mapping.keyByHeader.get(h);
       if (!k) return;
       const raw = r[i];
-      rec[k as string] = SchemaValidator.coerce(mapping.types.get(k), raw);
+      rec[k as string] = SchemaValidator.fromExcelValue(mapping.types.get(k), raw);
     });
 
     const range = table.rows.getItemAt(idx).getRange();
@@ -677,7 +736,7 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
     await (table.context as Excel.RequestContext).sync();
 
     const targetType = mapping.types.get(key);
-    const target = SchemaValidator.coerce(targetType, value as any);
+    const target = SchemaValidator.fromExcelValue(targetType, value as any);
 
     const colValues: any[] = (colRange.values || []).map((r: any[]) => r[0]);
 
@@ -687,14 +746,14 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
 
     const out: RowMatchTyped<T>[] = [];
     colValues.forEach((raw, idx) => {
-      const coerced = SchemaValidator.coerce(targetType, raw);
+      const coerced = SchemaValidator.fromExcelValue(targetType, raw);
       if (isEqual(coerced, target, opts)) {
         const r = (body.values || [])[idx] as any[];
         const rec: any = {};
         headers.forEach((h, i) => {
           const k = mapping.keyByHeader.get(h);
           if (!k) return;
-          rec[k as string] = SchemaValidator.coerce(mapping.types.get(k), r[i]);
+          rec[k as string] = SchemaValidator.fromExcelValue(mapping.types.get(k), r[i]);
         });
         const range = table.rows.getItemAt(idx).getRange();
         out.push({ index: idx, row: rec as T, range });
@@ -728,11 +787,11 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
           if (!isBlank(current) && !isBlank(incoming) && normalizeForCompare(current) !== normalizeForCompare(incoming)) {
             throw new Error(`Attempt to modify final column ${String(k)} on row ${m.index}`);
           }
-          rowObj[h] = SchemaValidator.coerce(mapping.types.get(k), current);
+          rowObj[h] = SchemaValidator.toExcelValue(mapping.types.get(k), current);
           return;
         }
         let v = (incoming !== undefined ? incoming : current);
-        v = SchemaValidator.coerce(mapping.types.get(k), v);
+        v = SchemaValidator.toExcelValue(mapping.types.get(k), v);
         rowObj[h] = v;
       });
       // Required check (ignore calculated)

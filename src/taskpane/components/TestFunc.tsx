@@ -1,22 +1,45 @@
 import * as React from "react";
 import { useState } from 'react';
-import { PrimaryButton } from '@fluentui/react';
+import {
+  Stack,
+  Text,
+  SearchBox,
+  DefaultButton,
+  PrimaryButton,
+  Dropdown,
+  IDropdownOption,
+  Pivot,
+  PivotItem,
+  DetailsList,
+  DetailsListLayoutMode,
+  SelectionMode,
+  MessageBar,
+  getTheme,
+  IColumn,
+} from "@fluentui/react";
+
 import { WorkbookSchemaGenerator } from "../../util/data/SchemaGenerator";
-import { WorkbookORM, TableRepository, TypedRowRepository } from "../../util/data/UniversalRepo";
+import { WorkbookORM, TableRepository, TypedRowRepository, SchemaValidator } from "../../util/data/UniversalRepo";
 import { ExcelService } from "../../services/ExcelService";
 import { coerceAnyToDBType } from "../../util/data/DBUtil";
-import { Requisition, requisitionDef } from "../../util/data/DBSchema";
+import { Project, ProjectMember, Requisition, requisitionDef, RequisitionItem } from "../../util/data/DBSchema";
 import { excelLog } from "../../util/Logs";
 import { RequisitionService } from "../../services/RequisitionService";
-
+import { PersonService } from "../../services/PersonService";
+import { ProcurementRole, ProjectService } from "../../services/ProjectService";
 
 export interface TestProps {
     title: string;
 }
   
 const Test: React.FC<TestProps> = (props: TestProps) => {
+
+    const formatDate = (iso: Date) => new Date(iso).toLocaleDateString();
+ 
     const { title } = props;
     const [ data, setData] = useState<string>('---');
+
+    const [items, setItems] = useState<Requisition[]>([]);
 
     const testCoerce = async () => {
         console.log("Test coerce");
@@ -25,17 +48,105 @@ const Test: React.FC<TestProps> = (props: TestProps) => {
         console.log("Coerced : ", coerced);
     }
 
+    const addDraft = async () => {
+        try {
+            await Excel.run(async (context) => {
+
+                const personService = await PersonService.create(context);
+                const currentUser = await personService.getCurrentUser();
+
+                const projectService = await ProjectService.create(context);
+                const authorProjects = await projectService.getUserProjectsByRole(currentUser.id, "requisition_author");
+                // const firstProject : Project = (authorProjects.length == 1 ? await projectService.findProjectById(authorProjects[0].projectId) : {} as Project);
+                const approvers = authorProjects.length == 1 ? await projectService.getProjectMembersByRole(authorProjects[0].projectId, "requisition_approver") : [] as ProjectMember[];
+                const responsibles = [];
+                const allProjectMembers = await projectService.getAllProjectMembers();
+                const pmRole : ProcurementRole = "procurement_manager";
+                authorProjects.forEach(p => {
+                    const managers = allProjectMembers.filter(pm => (pm.roleName == pmRole && pm.projectId == p.projectId));
+                    excelLog("managers = " + JSON.stringify(managers) + " for " + p.projectName);
+                    managers.forEach(pm => {
+                        if(!responsibles.includes(pm.personName))
+                            responsibles.push(pm.personName);
+                    });
+                });
+                excelLog("responsibles = " + JSON.stringify(responsibles));
+                //excelLog("responsibles = " + JSON.stringify(responsibles));
+
+                const requisition : Requisition = {
+                    // createdBy : 
+                    createdAt : new Date()
+
+                } as Requisition;
+                // Получаем исходный лист
+                const sourceSheet = context.workbook.worksheets.getItem("RequisitionTemplate");
+
+                const excelService = await ExcelService.create(context);
+                
+                // Копируем лист с новым именем
+                const newName = "Draft " + Math.floor(Math.random() * 100);
+                const copiedSheet = sourceSheet.copy(Excel.WorksheetPositionType.end);
+                copiedSheet.name = newName;
+              
+                // Получаем именованную ячейку "createdAt" на новом листе
+                const namedItem = copiedSheet.names.getItemOrNullObject("createdAt");              
+
+                // Синхронизируем изменения
+                await context.sync();
+
+                const newRequisition : Requisition = {
+                    createdAt : SchemaValidator.toExcelValue("date", new Date()),
+                    createdBy : currentUser.id,
+                    createdByName : currentUser.fullName,
+                    projectName: (authorProjects.length > 0 ? authorProjects[0].projectName : ""),                   
+                    responsibleName : responsibles.length == 1 ? responsibles[0] : "",
+                    
+                } as Requisition;
+                approvers.forEach((a, i) => {
+                    (newRequisition as any)["approver" + i] = a.personName;
+                });
+
+                excelService.fillSheet(context, newRequisition, newName);
+
+                // Синхронизируем изменения
+                await context.sync();
+
+
+                /*
+                if (!namedItem.isNullObject) {
+                    // Получаем диапазон и устанавливаем дату/время
+                    const range = namedItem.getRange();
+
+                    const currentDateTime = SchemaValidator.toExcelValue("date", new Date());
+
+                    range.values = [[currentDateTime]];
+                }                
+                // console.log(`Лист "${sourceSheetName}" успешно скопирован с новым именем "${newSheetName}".`);
+                */
+            });
+          } catch (error) {
+            excelLog("Ошибка при копировании листа: " + error + "\n" + JSON.stringify(error));
+          }        
+    }
+
     const addRequisition = async () => {
         await Excel.run(async (ctx) => {
             try {
                 await excelLog("Step1");
-                const orm = new WorkbookORM(ctx.workbook);
                 const requisitionService = await RequisitionService.create(ctx);
-                const reqRepo = await orm.tables.getAs<Requisition>("Requisition", requisitionDef);
                 const excelService = await ExcelService.create(ctx);
-                const requisitionSimple = await excelService.getNamedRangesWithValues("RequisitionTemplate");
-                const items = await excelService.getTablesDataFromSheet("RequisitionTemplate");
-                const requisition = { ...requisitionSimple, ...items};
+                const activeSheet = ctx.workbook.worksheets.getActiveWorksheet();
+                activeSheet.load("name");
+                await ctx.sync();
+                
+                const requisition = await excelService.getNamedRangesWithValues(activeSheet.name);
+                const items = await excelService.getTablesDataFromSheet(activeSheet.name);
+                for(const key in items) {
+                    const value = items[key];
+                    if(Array.isArray(value)) {
+                        (requisition as any).RequisitionItems = value as RequisitionItem[];
+                    }
+                }
 
                 await excelLog("Step5 " + JSON.stringify(requisition));
                 await requisitionService.saveRequisition(requisition as Requisition);
@@ -74,7 +185,71 @@ const Test: React.FC<TestProps> = (props: TestProps) => {
             }
         });
     }
+    const getDrafts = async () => {
+        
+        await Excel.run(async (ctx) => {
+            try {
+                const requisitionService = await RequisitionService.create(ctx);
+                const drafts = await requisitionService.getDrafts(ctx);
+                // setData(JSON.stringify(drafts, null, 2));
+                setItems(drafts); 
+            } catch (e) {
+                setData(JSON.stringify(e));
+                throw e;
+            } finally {
+                console.log("Finally");
+            }
+        });
+    }
 
+
+    const columns : IColumn[] = [
+        { key: "id", name: "Request", minWidth: 100, maxWidth:100, onRender: (i: Requisition) => (
+          <Stack tokens={{ childrenGap: 4 }}>
+            <Text variant="mediumPlus"><b>{i.id}</b></Text>
+            <Text variant="xSmall">{i.requisitionItems} items</Text>
+          </Stack>
+        )},
+        { key: "proj", name: "Name / Project", minWidth: 150, onRender: (i: Requisition) => (
+          <Stack tokens={{ childrenGap: 4 }}>
+            <Text>{i.name}</Text>
+            <Text variant="xSmall">{i.projectName}</Text>
+          </Stack>
+        )},
+        { key: "needed", name: "Needed by", minWidth: 100, onRender: (i: Requisition) => (
+          <Stack tokens={{ childrenGap: 4 }}>
+            <Text>{formatDate(i.dueDate)}</Text>
+            <Text variant="xSmall">Created {formatDate(i.createdAt)}</Text>
+          </Stack>
+        )},
+        // { key: "status", name: "Status", minWidth: 100, onRender: (i: Requisition) => (
+        //   <Stack horizontal tokens={{ childrenGap: 8 }}>
+        //     <Chip text={i.status} color={statusColorMap[i.status]} />
+        //     {/* <Chip text={i.risk} color={riskColorMap[i.risk]} /> */}
+        //   </Stack>
+        // )},
+        // { key: "total", name: "Total", minWidth: 100, onRender: (i: RequestRow) => <Text>{currency(i.total)}</Text> },
+        { key: "owner", name: "Owner / Updated", minWidth: 120, onRender: (i: Requisition) => (
+          <Stack>
+            <Text>{i.responsibleName}</Text>
+            {/* <Text variant="xSmall">{formatDate(i.lastUpdate)}</Text> */}
+          </Stack>
+        )},
+        /*
+        { key: "actions", name: "Actions", minWidth: 180, onRender: (i: RequestRow) => (
+          <Stack horizontal tokens={{ childrenGap: 8 }}>
+            {i.status === "Awaiting Approval" && (
+              <PrimaryButton text="Approve" onClick={() => alert(`Approved ${i.id}`)} />
+            )}
+            {i.status === "Approved" && (
+              <DefaultButton text="Create PO" onClick={() => alert(`Create PO for ${i.id}`)} />
+            )}
+            <DefaultButton text="Received" onClick={() => alert(`Received ${i.id}`)} />
+          </Stack>
+        )},
+        */ 
+      ];
+    
     
     return (
         <div>
@@ -97,8 +272,32 @@ const Test: React.FC<TestProps> = (props: TestProps) => {
             >
                 Add Requisition
             </PrimaryButton>
+            <PrimaryButton
+                onClick={addDraft}
+                className="w-100"
+            >
+                Add Requisition Draft
+            </PrimaryButton>
+            <PrimaryButton
+                onClick={getDrafts}
+                className="w-100"
+            >
+                Get Drafts
+            </PrimaryButton>
 <pre><code>{data}</code></pre>
+
+    <Stack horizontal tokens={{ childrenGap: 12 }} wrap>
+        <Stack grow styles={{ root: { minWidth: 500 } }}>
+          <DetailsList
+            items={items}
+            columns={columns as any}
+            selectionMode={SelectionMode.none}
+            layoutMode={DetailsListLayoutMode.justified}
+          />
+        </Stack>
+    </Stack>
         </div>
+
       );
     
 }
