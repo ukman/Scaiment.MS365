@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head><script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script></head>
+<body>
+  <h1>
+    Start 22
+  </h1>
+<script>
+  Office.onReady(() => {
+    const url = 'https://login.microsoftonline.com/8f719ff3-dda5-4884-bd32-692ccf5f0c54/oauth2/v2.0/authorize?' +
+      'client_id=dbfefe9a-a7d6-45ce-8eee-2c3df73efe50&response_type=code&redirect_uri=' + encodeURIComponent('https://localhost:3001/auth/callback') +
+      '&scope=Mail.Read%20Mail.Send%20User.Read%20offline_access&response_mode=query&state=1234';
+    window.location.href = url; // Redirect на Azure
+  });
+</script>
+</body>
+</html>

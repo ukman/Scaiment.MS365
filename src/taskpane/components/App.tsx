@@ -13,6 +13,9 @@ import Drafts from './Drafts';
 import Mail from './Mail';
 import OutlookEmails from './OutlookEmail';
 import Test from './TestFunc';
+import AuthButton from './AuthButton';
+import { MSGraphService } from '../../services/MSGraphService';
+import { excelLog } from '../../util/Logs';
 
 interface AppProps {
   title: string;
@@ -90,6 +93,11 @@ const App: React.FC<AppProps> = ({ title }) => {
   // const [users, setUsers] = useState<Person[]>([]);
   const [users, setUsers] = useState<Person[]>([]);
   
+  try {
+    MSGraphService.getInstance().validateSession();
+  }catch(e) {
+    excelLog("Errror 44 " + e);
+  }
 
   // Retry helper function for Graph API throttling
   const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, delay = 1000) => {
@@ -246,6 +254,7 @@ const App: React.FC<AppProps> = ({ title }) => {
         <PivotItem headerText="Options" itemKey="options" />
         <PivotItem headerText="Mail" itemKey="mail" />
         <PivotItem headerText="Test" itemKey="test" />
+        <PivotItem headerText="Auth" itemKey="auth" />
       </Pivot>
 
       {/* Контент, который меняется в зависимости от выбранного пункта */}
@@ -255,6 +264,7 @@ const App: React.FC<AppProps> = ({ title }) => {
         {selectedKey === 'drafts' && <Drafts title={'Hello'}/>}
         {selectedKey === 'mail' && <OutlookEmails clientId='dbfefe9a-a7d6-45ce-8eee-2c3df73efe50'/>}
         {selectedKey === 'test' && <Test title='Parse Data'/>}
+        {selectedKey === 'auth' && <AuthButton title='Auth'/>}
         {/* Добавьте аналогично для остальных */}
       </div>
     </Stack>

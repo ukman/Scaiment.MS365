@@ -1,0 +1,132 @@
+import { Configuration, PublicClientApplication } from "@azure/msal-browser";
+import { User, Message } from '@microsoft/microsoft-graph-types';
+import { excelLog } from "../util/Logs";
+
+export class MSGraphService {
+
+    private static readonly ACCESS_TOKEN_KEY = "__accessToken";
+    private static readonly REFRESH_TOKEN_KEY = "__refreshToken";
+
+    private accessToken : string;
+    private signedIn : boolean = false;
+    private currentUser : User;
+
+    private constructor () {
+        this.accessToken = localStorage.getItem(MSGraphService.ACCESS_TOKEN_KEY);
+        this.validateSession();
+    }
+
+    private static instance : MSGraphService;
+
+    public static getInstance() : MSGraphService {
+        if(!this.instance) {
+            this.instance = new MSGraphService();
+            // await this.instance.validateSession();
+        }
+        return this.instance;
+
+    }
+
+// Функция auth (добавьте кнопку в return)
+    public async authenticate() {
+
+        const msalConfig : Configuration = {
+            auth: {
+                clientId: 'dbfefe9a-a7d6-45ce-8eee-2c3df73efe50',
+                authority: 'https://login.microsoftonline.com/8f719ff3-dda5-4884-bd32-692ccf5f0c54',
+                redirectUri: 'https://localhost:3000/dialog-close.html', // Финальный redirect
+            },
+        };
+
+        const msalInstance = new PublicClientApplication(msalConfig); // Глобально или в context
+
+        try {
+            await msalInstance.initialize(); // Если не инициализировано
+            Office.context.ui.displayDialogAsync(
+                'https://localhost:3000/dialog-start.html', // В вашем домене
+                    { height: 60, width: 30 }, 
+                (result) => {
+                if (result.status === Office.AsyncResultStatus.Failed) {
+                    console.error(result.error.message);
+                    return;
+                }
+                const dialog = result.value;
+                dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg: any) => {
+                    dialog.close();
+                    const message = JSON.parse(arg.message);
+                    if (message.status === 'success') {
+                        const { accessToken, refreshToken } = message;
+                        // Сохраните в localStorage или state
+                        this.accessToken = accessToken;
+                        localStorage.setItem(MSGraphService.ACCESS_TOKEN_KEY, accessToken);
+                        localStorage.setItem(MSGraphService.REFRESH_TOKEN_KEY, refreshToken); // Для refresh
+                    } else {
+                        console.error('Auth failed:', message.error);
+                    }
+                });
+                }
+            );
+        } catch (error) {
+            console.error(error);
+        }
+
+    };
+
+    public isAuthenticated() : boolean {
+        return typeof(this.currentUser) !== "undefined";
+    }
+
+    public async validateSession() : Promise<boolean> {
+        try {
+        // await excelLog("Start validate session");
+        this.accessToken = localStorage.getItem(MSGraphService.ACCESS_TOKEN_KEY);
+        if(typeof(this.currentUser) == 'undefined') {
+            try {
+                await this.refreshCurrentUser();
+            } catch(e) {
+                await excelLog("Error validating session" + e);
+                console.error("Error validating session", e);
+            }
+        }
+        return this.isAuthenticated();
+        } catch(e) {
+            await excelLog("Error " + e);
+            throw e;
+        }
+    }
+
+    private async refreshCurrentUser() {
+        // const response = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
+
+        this.currentUser = undefined;
+
+        const response = await fetch('https://graph.microsoft.com/v1.0/me', {
+            headers: { 
+                Authorization: `Bearer ${this.accessToken}` 
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error(`Graph API error: ${response.status} ${response.statusText}`);
+        }    
+        this.currentUser = await response.json();    
+    }
+
+    public async getMessages() : Promise<Message[]> {
+        const response = await fetch('https://graph.microsoft.com/v1.0/me/messages?$top=25&$orderby=receivedDateTime desc', {
+            headers: {
+                Authorization: `Bearer ${this.accessToken}`, 
+                'Content-Type': 'application/json',
+            },
+          });
+        if (!response.ok) {
+            throw new Error(`Graph API error: ${response.status} ${response.statusText}`);
+        }
+        const res = await response.json();
+        return res.value as Message[];
+    }
+
+    public getCurrentUser() : User {
+        return this.currentUser;
+    }
+}

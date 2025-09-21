@@ -1,0 +1,22 @@
+// dialog-close.html (src/taskpane/dialog-close.html)
+<!DOCTYPE html>
+<html>
+<head><script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script></head>
+<body>
+  <h1>
+    Close
+  </h1>
+<script>
+  Office.onReady(() => {
+    const params = new URLSearchParams(window.location.hash.substring(1)); // Fragment
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    if (accessToken) {
+      Office.context.ui.messageParent(JSON.stringify({ status: 'success', accessToken, refreshToken }));
+    } else {
+      Office.context.ui.messageParent(JSON.stringify({ status: 'error', error: 'No token' }));
+    }
+  });
+</script>
+</body>
+</html>

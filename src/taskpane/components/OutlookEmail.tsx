@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Alert, Spinner, Badge } from 'react-bootstrap';
 import { Icon } from '@fluentui/react';
+import { MSGraphService } from '../../services/MSGraphService';
+import { Message } from '@microsoft/microsoft-graph-types';
+import { excelLog } from '../../util/Logs';
+import EmailMessageViewer from './EmailMessageViewer';
 // import * as Office from '@microsoft/office-js';
 
 // Интерфейсы для типизации
@@ -26,7 +30,8 @@ interface OutlookEmailsProps {
 }
 
 const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
-  const [emails, setEmails] = useState<EmailData[]>([]);
+  const [emails, setEmails] = useState<Message[]>([]);
+  const [message, setMessage] = useState<Message | undefined>( undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
 
@@ -41,6 +46,7 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
     setError('');
 
     try {
+      /*
       // Получаем access token через Office SSO
       const bootstrapToken = await Office.auth.getAccessToken({
         allowSignInPrompt: true,
@@ -61,8 +67,13 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
       }
 
       const data = await response.json();
-      setEmails(data.value || []);
+      */
+      await excelLog("Before loading email");
+      const data = await MSGraphService.getInstance().getMessages();
+      await excelLog("After loading email " + JSON.stringify(data as any));
+      setEmails(data);
     } catch (err: any) {
+      await excelLog("Error " + err);
       console.error('SSO error:', err);
       setError(`Ошибка: ${err.message || 'Не удалось получить доступ к Outlook. Проверьте настройки в Azure.'}`);
     } finally {
@@ -107,8 +118,20 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
     return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
   };
 
+  const clickMessage = async (email : Message) => {
+    await excelLog("Clicked " + email.from.emailAddress.address);
+    setMessage(email);
+    return 1;
+  }
+
+  const backToMessages = async () => {
+      setMessage(undefined);  
+  }
+
   return (
+    
     <div className="outlook-emails-container">
+      
       <style>{`
         .outlook-emails-container {
           padding: 20px;
@@ -167,6 +190,8 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
         }
       `}</style>
 
+      {!message && (
+      <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h5 className="mb-0">
           <Icon iconName="Mail" style={{ marginRight: '8px', color: '#0078d4' }} />
@@ -208,7 +233,7 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
       ) : emails.length > 0 ? (
         <div>
           {emails.map((email) => (
-            <Card key={email.id} className={`email-card ${!email.isRead ? 'unread' : ''}`}>
+            <Card key={email.id} className={`email-card ${!email.isRead ? 'unread' : ''}`} onClick={() => clickMessage(email)}>
               <Card.Body className="p-3">
                 <div className="email-header">
                   <div className="flex-grow-1">
@@ -251,7 +276,25 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
           </Button>
         </div>
       )}
+      </div>
+    )} 
+      {message && (
+        <div>
+        <Button
+          variant="outline-primary"
+          size="sm"
+          onClick={backToMessages}
+          className="refresh-button"
+        >
+          Back to messages
+          </Button>
+          <EmailMessageViewer message={message}></EmailMessageViewer>
+        </div>
+      )}
+
+
     </div>
+
   );
 };
 

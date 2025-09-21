@@ -1,5 +1,6 @@
 /* eslint-disable no-undef */
 
+const path = require('path');
 const devCerts = require("office-addin-dev-certs");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
@@ -83,6 +84,15 @@ module.exports = async (env, options) => {
               }
             },
           },
+          // Добавляем копирование dialog файлов
+          {
+            from: "src/taskpane/dialog-start.html",
+            to: "dialog-start.html",
+          },
+          {
+            from: "src/taskpane/dialog-close.html",
+            to: "dialog-close.html",
+          },
         ],
       }),
       new HtmlWebpackPlugin({
@@ -104,6 +114,10 @@ module.exports = async (env, options) => {
         options: env.WEBPACK_BUILD || options.https !== undefined ? options.https : await getHttpsOptions(),
       },
       port: process.env.npm_package_config_dev_server_port || 3000,
+      static: {
+        directory: path.resolve(__dirname, 'dist'), // Обслуживаем файлы из dist
+        publicPath: '/', // Доступ с корня[](https://localhost:3000/dialog-start.html)
+      },      
     },
   };
 

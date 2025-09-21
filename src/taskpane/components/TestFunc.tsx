@@ -53,7 +53,9 @@ const Test: React.FC<TestProps> = (props: TestProps) => {
             await Excel.run(async (context) => {
 
                 const personService = await PersonService.create(context);
+                excelLog("Trying to get current user ");
                 const currentUser = await personService.getCurrentUser();
+                excelLog("currentUser = " + currentUser);
 
                 const projectService = await ProjectService.create(context);
                 const authorProjects = await projectService.getUserProjectsByRole(currentUser.id, "requisition_author");
@@ -202,6 +204,43 @@ const Test: React.FC<TestProps> = (props: TestProps) => {
         });
     }
 
+    interface ChatCompletionRequest {
+        messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+        model: string;
+        max_tokens?: number;
+        temperature?: number;
+    }
+    
+    interface ChatCompletionResponse {
+        choices: Array<{ message: { content: string } }>;
+        id: string;
+        model: string;
+        usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    }
+    
+    const testRestApi = async () => {
+        await excelLog("Start test rest api");   
+        const requestBody: ChatCompletionRequest = {
+            messages:[{role: "user", content: "Назови первые 10 простых чисел"}],
+            model:"gpt-4.1",
+            temperature:0.1,
+            max_tokens:100
+        };
+    
+        try {
+//            const response = await fetch("https://localhost:3000/taskpane.html", {
+            const response = await fetch("https://localhost:3001/api/openai/chat", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody),
+            });  
+            const txt = await response.text();
+            await excelLog("Response status = " + response.status + " text = " + txt);      
+        }catch(e) {
+            await excelLog("Error = " + e);      
+        }
+    }
+
 
     const columns : IColumn[] = [
         { key: "id", name: "Request", minWidth: 100, maxWidth:100, onRender: (i: Requisition) => (
@@ -283,6 +322,12 @@ const Test: React.FC<TestProps> = (props: TestProps) => {
                 className="w-100"
             >
                 Get Drafts
+            </PrimaryButton>
+            <PrimaryButton
+                onClick={testRestApi}
+                className="w-100"
+            >
+                Test Rest API
             </PrimaryButton>
 <pre><code>{data}</code></pre>
 
