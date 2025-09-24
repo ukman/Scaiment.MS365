@@ -112,15 +112,30 @@ export class MSGraphService {
         this.currentUser = await response.json();    
     }
 
-    public async getMessages() : Promise<Message[]> {
-        const response = await fetch('https://graph.microsoft.com/v1.0/me/messages?$top=25&$orderby=receivedDateTime desc', {
+    public async getMessages(fromEmails? : string[]) : Promise<Message[]> {
+        // ?$filter=(from/emailAddress/address eq 'a@domain.com' or from/emailAddress/address eq 'b@domain.com')
+
+        let filterString = "";
+        if(fromEmails) {
+            const cond = fromEmails.filter(s => s.length > 0).map(email => `(from/emailAddress/address eq '${ email }')`).join(" or ");
+            filterString = `$filter=(${ cond } and (receivedDateTime ge 2025-08-22T00:00:00Z))&`
+        }
+        excelLog("filterString = " + filterString);
+        // filterString = '';
+
+        // const url = `https://graph.microsoft.com/v1.0/me/messages?${filterString}$top=125&$orderby=receivedDateTime desc`;
+        const url = `https://graph.microsoft.com/v1.0/me/messages?${filterString}$top=125`; 
+        excelLog(`URL = ${url}`);
+        const response = await fetch(url, {
             headers: {
                 Authorization: `Bearer ${this.accessToken}`, 
                 'Content-Type': 'application/json',
             },
           });
         if (!response.ok) {
-            throw new Error(`Graph API error: ${response.status} ${response.statusText}`);
+            const text = await response.text();
+            excelLog(`Graph API error: ${response.status} ${response.statusText} ${text}`); 
+            throw new Error(`Graph API error: ${response.status} ${response.statusText} ${text}`);
         }
         const res = await response.json();
         return res.value as Message[];

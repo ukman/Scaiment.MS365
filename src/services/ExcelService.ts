@@ -1,3 +1,4 @@
+import { excelLog } from "../util/Logs";
 
 export class ExcelService {
     constructor (private context : Excel.RequestContext) {
@@ -258,10 +259,10 @@ public convertExcelSerialToDate(serialNumber: number): Date | null {
   }
 
     // Заполняет именованные поля в sheetName данными из data.
-    public async fillSheet(context: Excel.RequestContext, data: any, sheetName: string) {
+    public async fillSheet(data: any, sheetName: string) {
         // Получаем указанный лист
-        const sheet = context.workbook.worksheets.getItemOrNullObject(sheetName);
-        await context.sync();
+        const sheet = this.context.workbook.worksheets.getItemOrNullObject(sheetName);
+        await this.context.sync();
   
         if (sheet.isNullObject) {
           throw new Error(`Лист с именем "${sheetName}" не найден.`);
@@ -270,7 +271,7 @@ public convertExcelSerialToDate(serialNumber: number): Date | null {
         // Получаем все именованные диапазоны в области действия листа
         const namedItems = sheet.names;
         namedItems.load("name, value");
-        await context.sync();
+        await this.context.sync();
   
         // Перебираем все именованные диапазоны
         for (const namedItem of namedItems.items) {
@@ -293,7 +294,7 @@ public convertExcelSerialToDate(serialNumber: number): Date | null {
         }
   
         // Синхронизируем изменения
-        await context.sync();
+        await this.context.sync();
   
         // console.log(`Именованные диапазоны на листе "${sheetName}" заполнены данными из JSON.`);
     }
@@ -419,4 +420,228 @@ public convertExcelSerialToDate(serialNumber: number): Date | null {
     }
   } 
     */   
+
+/**
+ * Заполняет таблицу Excel данными из массива объектов
+ * @param sheetName - Имя листа Excel
+ * @param data - Массив объектов с данными
+ * @param tableName - Необязательное имя таблицы (если не указано, берется первая найденная)
+ */
+public async fillTableWithData(
+  sheetName: string, 
+  data: any[], 
+  tableName?: string
+): Promise<void> {
+  await excelLog("fillTableWithData data.length = " + (data ? data.length : "null") + " sheet = " + sheetName);
+  try {
+      await this.context.sync();
+    // Получаем лист по имени
+      const worksheet = this.context.workbook.worksheets.getItem(sheetName);
+      
+      // Получаем все таблицы на листе
+      const tables = worksheet.tables;
+      // tables.load("items");
+      tables.load("items/name");
+      
+//      await excelLog("fillTableWithData before sync 111");
+      await this.context.sync();
+      await excelLog("fillTableWithData after sync 111");
+
+      // // await excelLog("fillTableWithData tables.items = " + tables.items);
+      if (tables.count === 0) {
+        throw new Error(`На листе "${sheetName}" не найдено ни одной таблицы`);
+      }
+      // await excelLog("fillTableWithData tables.items.length = " + tables.items.length);
+      
+      // Находим нужную таблицу
+      let targetTable: Excel.Table;
+      if (tableName) {
+        targetTable = tables.items.find(table => table.name === tableName);
+        if (!targetTable) {
+          throw new Error(`Таблица "${tableName}" не найдена на листе "${sheetName}"`);
+        }
+      } else {
+        // Берем первую таблицу
+        targetTable = tables.items[0];
+      }
+      await excelLog("fillTableWithData targetTable = " + targetTable);
+      
+      // Загружаем заголовки таблицы
+      const headerRange = targetTable.getHeaderRowRange();
+      headerRange.load("values");
+      
+      await this.context.sync();
+      
+      // Получаем заголовки как массив строк
+      const headers: string[] = headerRange.values[0] as string[];
+      
+      if (data.length === 0) {
+        await excelLog("Массив данных пуст");
+        return;
+      }
+      
+      // Получаем все возможные поля из данных
+      const dataFields = new Set<string>();
+      data.forEach(item => {
+        Object.keys(item).forEach(key => dataFields.add(key));
+      });
+      
+      // Создаем маппинг: индекс колонки -> поле из данных
+      const columnMapping: { [columnIndex: number]: string } = {};
+      headers.forEach((header, index) => {
+        if (dataFields.has(header)) {
+          columnMapping[index] = header;
+        }
+      });
+      
+      excelLog("Маппинг колонок:", columnMapping);
+      
+      // Подготавливаем данные для вставки
+      const rowsToInsert: any[][] = [];
+      
+      data.forEach(item => {
+        const row: any[] = new Array(headers.length);
+        
+        // Заполняем только те колонки, для которых есть соответствующие поля в данных
+        Object.keys(columnMapping).forEach(colIndexStr => {
+          const colIndex = parseInt(colIndexStr);
+          const fieldName = columnMapping[colIndex];
+          row[colIndex] = item[fieldName] !== undefined ? item[fieldName] : "";
+        });
+        
+        rowsToInsert.push(row);
+      });
+      
+      if (rowsToInsert.length > 0) {
+        // Очищаем существующие строки данных (не заголовки)
+        const bodyRange = targetTable.getDataBodyRange();
+        
+        try {
+          bodyRange.load("rowCount");
+          await this.context.sync();
+          
+          if (bodyRange.rowCount > 0) {
+            bodyRange.clear(Excel.ClearApplyTo.contents);
+          }
+        } catch (error) {
+          // Если таблица пустая, bodyRange может не существовать
+          excelLog("Таблица пустая, пропускаем очистку");
+        }
+        
+        // Добавляем новые строки
+        targetTable.rows.add(-1, rowsToInsert);
+        targetTable.rows.deleteRows([0]);
+        
+        await this.context.sync();
+        
+        excelLog(`Успешно добавлено ${rowsToInsert.length} строк в таблицу "${targetTable.name}"`);
+      } else {
+        excelLog("Нет данных для вставки");
+      }
+  } catch (error) {
+    excelLog("Ошибка при заполнении таблицы:" + error, error);
+    throw error;
+  }
+}
+
+/**
+ * Альтернативная версия - добавляет данные в конец таблицы без очистки
+ * @ param sheetName - Имя листа Excel
+ * @ param data - Массив объектов с данными
+ * @ param tableName - Необязательное имя таблицы
+ */
+/*
+async function appendDataToTable(
+  sheetName: string, 
+  data: any[], 
+  tableName?: string
+): Promise<void> {
+  try {
+    await Excel.run(async (context) => {
+      const worksheet = context.workbook.worksheets.getItem(sheetName);
+      const tables = worksheet.tables;
+      tables.load("items/name");
+      
+      await context.sync();
+      
+      if (tables.items.length === 0) {
+        throw new Error(`На листе "${sheetName}" не найдено ни одной таблицы`);
+      }
+      
+      let targetTable: Excel.Table;
+      if (tableName) {
+        targetTable = tables.items.find(table => table.name === tableName);
+        if (!targetTable) {
+          throw new Error(`Таблица "${tableName}" не найдена на листе "${sheetName}"`);
+        }
+      } else {
+        targetTable = tables.items[0];
+      }
+      
+      const headerRange = targetTable.getHeaderRowRange();
+      headerRange.load("values");
+      
+      await context.sync();
+      
+      const headers: string[] = headerRange.values[0] as string[];
+      
+      if (data.length === 0) {
+        console.log("Массив данных пуст");
+        return;
+      }
+      
+      const dataFields = new Set<string>();
+      data.forEach(item => {
+        Object.keys(item).forEach(key => dataFields.add(key));
+      });
+      
+      const columnMapping: { [columnIndex: number]: string } = {};
+      headers.forEach((header, index) => {
+        if (dataFields.has(header)) {
+          columnMapping[index] = header;
+        }
+      });
+      
+      const rowsToInsert: any[][] = [];
+      
+      data.forEach(item => {
+        const row: any[] = new Array(headers.length);
+        
+        Object.keys(columnMapping).forEach(colIndexStr => {
+          const colIndex = parseInt(colIndexStr);
+          const fieldName = columnMapping[colIndex];
+          row[colIndex] = item[fieldName] !== undefined ? item[fieldName] : "";
+        });
+        
+        rowsToInsert.push(row);
+      });
+      
+      if (rowsToInsert.length > 0) {
+        // Добавляем строки в конец таблицы
+        targetTable.rows.add(-1, rowsToInsert);
+        await context.sync();
+        
+        console.log(`Успешно добавлено ${rowsToInsert.length} строк в таблицу "${targetTable.name}"`);
+      }
+    });
+  } catch (error) {
+    console.error("Ошибка при добавлении данных в таблицу:", error);
+    throw error;
+  }
+}
+*/
+// Пример использования:
+/*
+const sampleData = [
+  { Name: "Иван", Age: 30, City: "Москва", Salary: 50000 },
+  { Name: "Мария", Age: 25, City: "СПб", Department: "IT" },
+  { Name: "Петр", Age: 35, Salary: 60000, Position: "Менеджер" }
+];
+
+// Заполнить таблицу (с очисткой существующих данных)
+await fillTableWithData("Лист1", sampleData);
+
+// Или добавить в конец таблицы
+await appendDataToTable("Лист1", sampleData, "Таблица1");
+*/  
 }

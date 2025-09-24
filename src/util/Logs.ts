@@ -45,7 +45,12 @@ let logBuffer: string[] = [];
 let timeoutId: number | null = null;
 const BUFFER_DELAY = 1000; // Задержка в 1 секунду
 
-export async function  excelLog(message: string): Promise<void> {
+export async function  excelLog(message: string, data? : any): Promise<void> {
+
+    if(data) {
+        message = message + "\n" + JSON.stringify(data, null, 2);
+    }
+
     // Добавляем сообщение в буфер
     logBuffer.push(message);
 

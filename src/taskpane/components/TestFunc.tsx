@@ -108,7 +108,7 @@ const Test: React.FC<TestProps> = (props: TestProps) => {
                     (newRequisition as any)["approver" + i] = a.personName;
                 });
 
-                excelService.fillSheet(context, newRequisition, newName);
+                excelService.fillSheet(newRequisition, newName);
 
                 // Синхронизируем изменения
                 await context.sync();

@@ -25,6 +25,11 @@ export class ProjectService {
         return project.row;
     }
 
+    public async findProjectsByIds(projectIds : number[]) : Promise<Project[]> {
+        const projects = await this.projectRepo.rows.findAllByKeys("id", projectIds);
+        return projects.map(project => project.row);
+    }
+
     public async getUserProjectsByRole(personId : number, role : ProcurementRole) : Promise<ProjectMember[]> {
         const projectMembers = await this.getUserProjects(personId);
         return projectMembers.filter(pm => pm.roleName === role);
@@ -37,6 +42,11 @@ export class ProjectService {
 
     public async getProjectMembers(projectId : number) : Promise<ProjectMember[]> {
         const projectMembers = await this.projectMemberRepo.rows.findAllBy("projectId", projectId);
+        return projectMembers.map(m => m.row);
+    }
+
+    public async getProjectsMembers(projectIds : number[]) : Promise<ProjectMember[]> {
+        const projectMembers = await this.projectMemberRepo.rows.findAllByKeys("projectId", projectIds);
         return projectMembers.map(m => m.row);
     }
 

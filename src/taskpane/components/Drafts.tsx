@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { PrimaryButton } from '@fluentui/react';
 import { WorkbookSchemaGenerator } from "../../util/data/SchemaGenerator";
 import { WorkbookORM } from "../../util/data/UniversalRepo";
+import { MetadataService } from "../../services/MetadataService";
+import { excelLog } from "../../util/Logs";
 
 
 
@@ -13,6 +15,18 @@ export interface DraftsProps {
 const Drafts: React.FC<DraftsProps> = (props: DraftsProps) => {
     const { title } = props;
     const [schema, setSchema2] = useState<string>('');
+
+    async function generateSM() {
+        await Excel.run(async (ctx) => {      
+            try {      
+            const service = await MetadataService.create(ctx);
+            const sm = await service.generateRequisitionSystemMessage();
+            setSchema2(sm);
+            } catch(e) {
+                excelLog("Error : " + e);
+            }
+        });
+    }
 
     async function generateSchema() {
         await Excel.run(async (ctx) => {            
@@ -39,6 +53,13 @@ const Drafts: React.FC<DraftsProps> = (props: DraftsProps) => {
                 className="w-100"
             >
                 Generate Schema
+            </PrimaryButton>
+            <PrimaryButton
+                // variant="primary"
+                onClick={generateSM}
+                className="w-100"
+            >
+                Generate SM
             </PrimaryButton>
 <pre><code>{schema}</code></pre>
         </div>

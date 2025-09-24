@@ -723,6 +723,7 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
     return { index: idx, row: rec as T, range };
   }
 
+
   /** Find all rows by typed key/value */
   async findAllBy<K extends keyof T>(key: K, value: T[K], opts?: RowFindOptions): Promise<RowMatchTyped<T>[]> {
     const headers = await this["headers"]();
@@ -748,6 +749,48 @@ export class TypedRowRepository<T extends Record<string, any>> extends RowReposi
     colValues.forEach((raw, idx) => {
       const coerced = SchemaValidator.fromExcelValue(targetType, raw);
       if (isEqual(coerced, target, opts)) {
+        const r = (body.values || [])[idx] as any[];
+        const rec: any = {};
+        headers.forEach((h, i) => {
+          const k = mapping.keyByHeader.get(h);
+          if (!k) return;
+          rec[k as string] = SchemaValidator.fromExcelValue(mapping.types.get(k), r[i]);
+        });
+        const range = table.rows.getItemAt(idx).getRange();
+        out.push({ index: idx, row: rec as T, range });
+      }
+    });
+
+    return out;
+  }
+
+
+  
+  /** Find all rows by typed key/value */
+  async findAllByKeys<K extends keyof T>(key: K, values: T[K][], opts?: RowFindOptions): Promise<RowMatchTyped<T>[]> {
+    const headers = await this["headers"]();
+    const mapping = await this.mapping();
+    const header = mapping.headerByKey.get(key);
+    if (!header) throw new Error(`Key not mapped to a header: ${String(key)}`);
+
+    const table: Excel.Table = (this as any)["table"];
+    const colRange = table.columns.getItem(header).getDataBodyRange();
+    colRange.load(["values", "rowCount"]);
+    await (table.context as Excel.RequestContext).sync();
+
+    const targetType = mapping.types.get(key);
+    const targets = values.map(value => SchemaValidator.fromExcelValue(targetType, value as any));
+
+    const colValues: any[] = (colRange.values || []).map((r: any[]) => r[0]);
+
+    const body = table.getDataBodyRange();
+    body.load(["values"]);
+    await (table.context as Excel.RequestContext).sync();
+
+    const out: RowMatchTyped<T>[] = [];
+    colValues.forEach((raw, idx) => {
+      const coerced = SchemaValidator.fromExcelValue(targetType, raw);
+      if (targets.some( target => isEqual(coerced, target, opts))) {
         const r = (body.values || [])[idx] as any[];
         const rec: any = {};
         headers.forEach((h, i) => {

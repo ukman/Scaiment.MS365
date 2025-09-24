@@ -5,6 +5,8 @@ import cors from 'cors';
 import https from 'https';
 import { getHttpsServerOptions } from 'office-addin-dev-certs';
 import { ConfidentialClientApplication } from '@azure/msal-node';
+import * as XLSX from 'xlsx';
+import { AzureOpenAI } from 'openai';
 
 dotenv.config();
 
@@ -99,6 +101,57 @@ async function handleOpenAIRequest(req: Request, res: Response) {
     };
     */
 
+    // Настройка клиента Azure OpenAI
+    const client = new AzureOpenAI({
+        apiKey: process.env.AZURE_OPENAI_API_KEY, // Ваш API ключ
+        endpoint: process.env.AZURE_OPENAI_ENDPOINT, // https://your-resource.openai.azure.com
+        apiVersion: process.env.AZURE_OPENAI_API_VERSION // '2024-02-01', // Версия API
+    });
+
+    try {
+        console.log("AI Input : " + JSON.stringify(requestBody, null, 2));
+        const response = await client.chat.completions.create(requestBody);
+        /*
+        ({
+          model: 'gpt-4', // Имя вашего развернутого деплоймента в Azure
+          messages: [
+            {
+              role: 'system',
+              content: 'Ты полезный ассистент, который отвечает на русском языке.'
+            },
+            {
+              role: 'user',
+              content: 'Сколько будет пять плюс 10 и все в квадрате?'
+            }
+          ],
+          max_tokens: 500,
+          temperature: 0.3,
+        });
+        */
+       console.log("AI Output : " + JSON.stringify(response, null, 2));
+       res.json(response);
+
+       
+       try {
+        console.log("response.choices[0]?.message?.content = ");
+        console.log(response.choices[0]?.message?.content);
+        const content = JSON.parse(response.choices[0]?.message?.content);
+
+            console.log(JSON.stringify(content, null, 2));
+       }catch(e) {
+            console.error("Cannot parse content \n" + e);
+       }
+    
+        // TypeScript автоматически определит типы
+        // const assistantMessage = response.choices[0]?.message?.content;
+        // return response; // assistantMessage || 'Ответ не получен';
+        
+    } catch (error) {
+        console.error('Ошибка при обращении к Azure OpenAI:', error);
+        throw error;
+    }
+
+    /*
     try {
         const response = await axios.post<ChatCompletionResponse>(
             `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
@@ -115,6 +168,7 @@ async function handleOpenAIRequest(req: Request, res: Response) {
         console.error('Proxy error:', error.message);
         res.status(error.response?.status || 500).json({ error: 'Failed to call Azure OpenAI API' });
     }
+    */
 }
 
 startServer().catch((error) => {

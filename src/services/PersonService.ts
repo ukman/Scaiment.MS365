@@ -41,8 +41,13 @@ export class PersonService {
     }
 
     public async findPersonById(id : number) : Promise<Person> {
-        const person = this.personRepo.rows.findFirstBy("id", id);
-        return (await person).row;
+        const person = await this.personRepo.rows.findFirstBy("id", id);
+        return person.row;
+    }
+
+    public async findPersonsByIds(ids : number[]) : Promise<Person[]> {
+        const persons = await this.personRepo.rows.findAllByKeys("id", ids);
+        return persons.map(person => person.row);
     }
 
     public async findPersonByEmail(email : string) : Promise<Person> {

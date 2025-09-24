@@ -17,16 +17,16 @@ const EmailMessageViewer: React.FC<EmailMessageViewerProps> = ({ message }) => {
 
   return (
     <Stack tokens={{ childrenGap: 10 }} styles={{ root: { padding: 10, maxWidth: 800 } }}>
-      <Stack horizontal horizontalAlign="space-between">
+      {/* <Stack horizontal horizontalAlign="space-between">
         <Text variant="mediumPlus" block><strong>From:</strong> {fromName} ({fromEmail})</Text>
         <Text variant="medium" block>{sentDateTime}</Text>
       </Stack>
       <Text variant="medium"><strong>To:</strong> {toRecipients}</Text>
       <Separator />
       <Text variant="large" block><strong>Subject:</strong> {subject}</Text>
-      <Separator />
+      <Separator /> */}
       <Stack>
-        <Text variant="medium"><strong>Body:</strong></Text>
+        {/* <Text variant="medium"><strong>Body:</strong></Text> */}
         {bodyType === 'html' ? (
           <div dangerouslySetInnerHTML={{ __html: bodyContent }} />
         ) : (

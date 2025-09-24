@@ -1,11 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Alert, Spinner, Badge } from 'react-bootstrap';
-import { Icon } from '@fluentui/react';
+import { Icon, IconButton, PrimaryButton, IButtonStyles } from '@fluentui/react';
 import { MSGraphService } from '../../services/MSGraphService';
 import { Message } from '@microsoft/microsoft-graph-types';
 import { excelLog } from '../../util/Logs';
 import EmailMessageViewer from './EmailMessageViewer';
 // import * as Office from '@microsoft/office-js';
+import { initializeIcons } from '@fluentui/font-icons-mdl2';
+import { PersonService } from '../../services/PersonService';
+import { ProjectService } from '../../services/ProjectService';
+import { AIService } from '../../services/AIService';
+import { MetadataService } from '../../services/MetadataService';
+import { Requisition } from '../../util/data/DBSchema';
+import { RequisitionView } from './RequisitionView';
+import { RequisitionService } from '../../services/RequisitionService';
+import { DraftService } from '../../services/DraftService';
+
+
+// Инициализируем иконки (вызовите один раз в App.tsx или index.tsx)
+initializeIcons();
 
 // Интерфейсы для типизации
 interface EmailData {
@@ -32,6 +45,10 @@ interface OutlookEmailsProps {
 const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
   const [emails, setEmails] = useState<Message[]>([]);
   const [message, setMessage] = useState<Message | undefined>( undefined);
+  const [requisition, setRequisition] = useState<Requisition | undefined>( undefined);
+
+  
+  const [prevMessage, setPrevMessage] = useState<Message | undefined>( undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
 
@@ -46,6 +63,19 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
     setError('');
 
     try {
+      let emails : string[];
+      await Excel.run(async (ctx) => {            
+        const ps = await PersonService.create(ctx);
+        const cu = await ps.getCurrentUser();
+        const projServ = await ProjectService.create(ctx);
+        const projectMembers = await projServ.getUserProjects(cu.id);
+        const allMembers = await projServ.getProjectsMembers(projectMembers.map(pm => pm.projectId));
+        const creatorIds = allMembers.filter(m => m.roleName ==  "requisition_author").map(pm => pm.personId);
+        const creators = await ps.findPersonsByIds(creatorIds);
+        emails = creators.map(p => p.email);
+        excelLog("emails = " + emails.join(" , "));
+      });
+
       /*
       // Получаем access token через Office SSO
       const bootstrapToken = await Office.auth.getAccessToken({
@@ -69,7 +99,7 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
       const data = await response.json();
       */
       await excelLog("Before loading email");
-      const data = await MSGraphService.getInstance().getMessages();
+      const data = await MSGraphService.getInstance().getMessages(emails);
       await excelLog("After loading email " + JSON.stringify(data as any));
       setEmails(data);
     } catch (err: any) {
@@ -119,9 +149,49 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
   };
 
   const clickMessage = async (email : Message) => {
-    await excelLog("Clicked " + email.from.emailAddress.address);
-    setMessage(email);
+    await excelLog("Clicked " + email.from.emailAddress.address + "\n" + email.body.content);
+    setPrevMessage(message);
+    if(message == email) {
+      setMessage(undefined);
+    } else {
+      setMessage(email);
+    }
     return 1;
+  }
+
+  const createDraft = async (requisition : Requisition) => {
+      await Excel.run(async (context: Excel.RequestContext) => {
+        try {
+          const ds = await DraftService.create(context);
+          await ds.addRequisitionDraft(requisition);
+        } catch(e) {
+          await excelLog("Error add draft " + e);
+        }
+      });
+  }
+
+  const analyzeMessage = async (email : Message) => {
+    let systemMessage = undefined;
+    await Excel.run(async (context: Excel.RequestContext) => {
+      const ms = await MetadataService.create(context);
+      systemMessage = await ms.generateRequisitionSystemMessage();
+    });
+
+    if(!systemMessage) {
+      throw new Error("Cannot create system message for AI request");
+    }
+    const response = await AIService.getInstance().callAI(
+      `${systemMessage}
+       Вот письмо:
+       Subject : ${email.subject}
+       ${email.body.content}
+      `
+    );
+    const content = JSON.parse(response.choices[0]?.message?.content);
+    const s = JSON.stringify(content, null, 2);
+    excelLog(s);
+    (email as any).aiResult = content;
+    
   }
 
   const backToMessages = async () => {
@@ -188,9 +258,17 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
         .refresh-button {
           margin-bottom: 16px;
         }
+        .body {
+          max-height: 0px;
+          overflow:scroll;
+          transition: max-height 0.3s ease-out;
+        }
+        div.body.open {
+           max-height: 600px; /* Установите достаточно большую высоту для контента */
+        }
       `}</style>
 
-      {!message && (
+      {(!message || true) && (
       <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h5 className="mb-0">
@@ -204,6 +282,7 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
           disabled={loading}
           className="refresh-button"
         >
+          
           {loading ? (
             <>
               <Spinner animation="border" size="sm" className="me-2" />
@@ -216,6 +295,27 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
             </>
           )}
         </Button>
+
+        <PrimaryButton
+      text="Back"
+      onClick={backToMessages}
+      iconProps={{ iconName: 'Back' }}
+      styles={{
+        root: {
+          backgroundColor: '#0078D4', // Яркий синий цвет
+          color: '#FFFFFF', // Белый текст для контраста
+          fontSize: 16,
+          padding: '10px 20px',
+          height: 40,
+          minWidth: 100,
+          border: 'none',
+        },
+        icon: {
+          color: '#FFFFFF', // Убедимся, что иконка белая
+          marginRight: 8, // Отступ между иконкой и текстом
+        },
+      }}/>          
+
       </div>
 
       {error && (
@@ -233,9 +333,9 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
       ) : emails.length > 0 ? (
         <div>
           {emails.map((email) => (
-            <Card key={email.id} className={`email-card ${!email.isRead ? 'unread' : ''}`} onClick={() => clickMessage(email)}>
+            <Card key={email.id} className={`email-card ${!email.isRead ? 'unread' : ''}`}>
               <Card.Body className="p-3">
-                <div className="email-header">
+                <div className="email-header" onClick={() => clickMessage(email)}>
                   <div className="flex-grow-1">
                     <h6 className="email-subject">
                       {getImportanceIcon(email.importance)}
@@ -263,6 +363,35 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
                     </Badge>
                   )}
                 </div>
+                  <div className={`body ${email == message ? 'open' : ''}`}>
+                    <div>
+                    <PrimaryButton
+                      text="Analyze"
+                      onClick={() => analyzeMessage(email)}
+                      iconProps={{ iconName: 'NavigateBack' }}
+                      />          
+
+                    </div>
+                    {(email == message || email == prevMessage) && (
+
+                      <EmailMessageViewer message={email}></EmailMessageViewer> 
+                    )}
+
+                  </div>
+
+                  {(email as any).aiResult && (
+                    <div>
+                      <RequisitionView data={((email as any).aiResult as Requisition)}></RequisitionView>
+                      <div>
+                        <PrimaryButton
+                            text="Create Draft"
+                            onClick={() => createDraft((email as any).aiResult as Requisition)}
+                            iconProps={{ iconName: 'NavigateBack' }}
+                            />          
+                      </div>                      
+                    </div>
+                  )}
+
               </Card.Body>
             </Card>
           ))}
@@ -278,16 +407,22 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
       )}
       </div>
     )} 
-      {message && (
+      {message && false  && (
         <div>
-        <Button
+ 
+        {/* <Button
           variant="outline-primary"
           size="sm"
           onClick={backToMessages}
           className="refresh-button"
         >
           Back to messages
-          </Button>
+          </Button> */}
+          <PrimaryButton
+          text="Back"
+          onClick={backToMessages}
+          iconProps={{ iconName: 'NavigateBack' }}
+          />          
           <EmailMessageViewer message={message}></EmailMessageViewer>
         </div>
       )}
