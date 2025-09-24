@@ -1,4 +1,5 @@
 /// <reference types="office-js" />
+
 /*
   WorkbookSchemaGenerator (supports metadata rows above table header)
   ------------------------------------------------------------------
@@ -13,19 +14,23 @@
 
 export type ColumnType = "string" | "number" | "boolean" | "date" | "any";
 export type DefaultValue<T> = T | (() => T);
+
+export type ColumnDefinition<T> = {
+  type?: ColumnType;
+  required?: boolean;
+  default?: DefaultValue<T>;
+  calculated?: boolean;
+  referenceTo?: string;
+  final?: boolean;
+  min?: number; 
+  max?: number;
+  description?: string;
+  aiDescription?: string;
+};
+
 export type TableDefinition<T extends Record<string, any>> = {
   columns: {
-    [K in keyof T]-?: {
-      type?: ColumnType;
-      required?: boolean;
-      default?: DefaultValue<T[K]>;
-      calculated?: boolean;
-      referenceTo?: string;
-      final?: boolean;
-      min?: number; 
-      max?: number;
-      description?: string;
-    }
+    [K in keyof T]-?: ColumnDefinition<T[K]>;
   };
   names?: Partial<Record<keyof T, string>>;
   order?: (keyof T)[];
@@ -49,7 +54,7 @@ export type GenerateOptions = {
   importPath?: string;
 };
 
-const META_KEYS = ["type", "required", "calculated", "referenceto", "final", "defaultvalue", "min", "max", "description"] as const;
+const META_KEYS = ["type", "required", "calculated", "referenceto", "final", "defaultvalue", "min", "max", "description", "aidescription"] as const;
 
 type MetaMap = Partial<Record<(typeof META_KEYS)[number], any[]>>;
 
@@ -181,6 +186,7 @@ export class WorkbookSchemaGenerator {
     const minRow = meta["min"];
     const maxRow = meta["max"];
     const descriptionRow = meta["description"];
+    const aiDescriptionRow = meta["aidescription"];
 
     const columns: Record<string, { type?: ColumnType; required?: boolean; default?: any; calculated?: boolean; referenceTo?: string; final?: boolean }> = {};
 
@@ -193,6 +199,7 @@ export class WorkbookSchemaGenerator {
       const ref = asNonEmptyString(refRow?.[i]); if (ref) col.referenceTo = ref;
       const dv = defValue(defRow?.[i], t); if (dv !== undefined) col.default = dv;
       const desc = asNonEmptyString(descriptionRow?.[i]); if (desc) col.description = desc;
+      const aiDesc = asNonEmptyString(aiDescriptionRow?.[i]); if (desc) col.aiDescription = aiDesc;
       columns[k] = col;
     });
 
