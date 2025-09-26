@@ -9,7 +9,7 @@ import EmailMessageViewer from './EmailMessageViewer';
 import { initializeIcons } from '@fluentui/font-icons-mdl2';
 import { PersonService } from '../../services/PersonService';
 import { ProjectService } from '../../services/ProjectService';
-import { AIService } from '../../services/AIService';
+import { AIService, ContentResponse } from '../../services/AIService';
 import { MetadataService } from '../../services/MetadataService';
 import { Requisition } from '../../util/data/DBSchema';
 import { RequisitionView } from './RequisitionView';
@@ -207,6 +207,8 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
   }
 
   const analyzeMessage = async (email : Message) => {
+    const excelAttachments = await MSGraphService.getInstance().getMailAttachments(email.id);
+
     let systemMessage = undefined;
     await Excel.run(async (context: Excel.RequestContext) => {
       const ms = await MetadataService.create(context);
@@ -218,15 +220,22 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
     }
     const response = await AIService.getInstance().callAI(
       `${systemMessage}
-       Вот письмо:
-       Subject : ${email.subject}
-       ${email.body.content}
+Вот письмо:
+From: ${email.from.emailAddress} 
+Date sent: ${"" + email.sentDateTime}
+Subject : ${email.subject}
+${excelAttachments.length == 0 ? '' :  'Attachments :\n```json' + JSON.stringify(excelAttachments) + '\n```' }
+Body : 
+${email.body.content}
       `
     );
     const content = JSON.parse(response.choices[0]?.message?.content);
-    (content as Requisition).emailId = email.id;
     const s = JSON.stringify(content, null, 2);
     excelLog(s);
+    const contentRequisition = (content as ContentResponse);
+    if(contentRequisition.requisition) {
+      contentRequisition.requisition.emailId = email.id;
+    }
     const newAIResults = {...aiResults};
     newAIResults[email.id] = content;
     setAIResults(newAIResults);
@@ -318,10 +327,6 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
       {(!message || true) && (
       <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <h5 className="mb-0">
-          <Icon iconName="Mail" style={{ marginRight: '8px', color: '#0078d4' }} />
-          Последние письма
-        </h5>
         <Button
           variant="outline-primary"
           size="sm"
@@ -351,11 +356,9 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
         </Alert>
       )}
 
-      {loading ? (
-        <div className="text-center py-4">
-          <Spinner animation="border" className="mb-3" />
-          <p className="text-muted">Загрузка писем...</p>
-        </div>
+      {loading && false ? (
+        <>
+        </>
       ) : emails.length > 0 ? (
         <div>
           {emails.map((email) => (
@@ -376,7 +379,7 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
                         (<Button
                           variant="outline-primary"
                           size="sm"
-                          onClick={() => openDraft(email.id)}
+                          onClick={(event) => {openDraft(email.id); event.stopPropagation();}}
                           disabled={loading}
                           className="refresh-button"
                         >Draft is done
@@ -427,7 +430,7 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
 
                   {(aiResults[email.id]) && (
                     <div>
-                      <RequisitionView data={(aiResults[email.id] as Requisition)}></RequisitionView>
+                      <RequisitionView data={(aiResults[email.id] as ContentResponse).requisition}></RequisitionView>
                       <div>
                         <PrimaryButton
                             text="Create Requisition Draft"
@@ -435,7 +438,10 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
                             onClick={() => createDraft(aiResults[email.id] as RequisitionDraft)}
                             iconProps={{ iconName: 'AddToShoppingList' }}
                             />          
-                      </div>                      
+                      </div>           
+                      <pre>
+                      {(aiResults[email.id] as ContentResponse).replyMessage}
+                      </pre>           
                     </div>
                   )}
 

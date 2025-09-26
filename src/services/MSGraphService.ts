@@ -2,6 +2,12 @@ import { Configuration, PublicClientApplication } from "@azure/msal-browser";
 import { User, Message } from '@microsoft/microsoft-graph-types';
 import { excelLog } from "../util/Logs";
 
+
+export interface ExcelFile {
+    fileName : string;
+    csv : string;
+}
+
 export class MSGraphService {
 
     private static readonly ACCESS_TOKEN_KEY = "__accessToken";
@@ -131,7 +137,8 @@ export class MSGraphService {
             headers: {
                 Authorization: `Bearer ${this.accessToken}`, 
                 'Content-Type': 'application/json',
-            },
+                'Prefer': 'IdType="ImmutableId"'
+            }
           });
         if (!response.ok) {
             const text = await response.text();
@@ -144,5 +151,22 @@ export class MSGraphService {
 
     public getCurrentUser() : User {
         return this.currentUser;
+    }
+
+    public async getMailAttachments(emailId : string) : Promise<ExcelFile[]> {
+        const response = await fetch("https://localhost:3001/emails", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                accessToken: this.accessToken, 
+                messageId: emailId
+            }),
+        });  
+        if(!response.ok) {
+            throw new Error("Error getting attachments " + response.text);
+        }
+        const result = await response.json();
+        excelLog("attachments = ", result);
+        return result;
     }
 }

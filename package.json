@@ -35,6 +35,7 @@
     "@fluentui/font-icons-mdl2": "^8.5.63",
     "@fluentui/react": "^8.123.6",
     "@fluentui/react-hooks": "^8.8.19",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
     "@microsoft/office-js": "^1.1.110",
     "axios": "^1.12.2",
     "bootstrap": "^5.3.8",

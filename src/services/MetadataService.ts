@@ -17,17 +17,31 @@ export class MetadataService {
         const reqSchema = schema.runtime["Requisition"]; 
         const reqItemSchema = schema.runtime["RequisitionItem"]; 
 
-        const reqSM = this.generateSystemMessageForColumns(reqSchema.columns, "  ");
-        const reqItemSM = this.generateSystemMessageForColumns(reqItemSchema.columns, "    ");
+        const reqSM = this.generateSystemMessageForColumns(reqSchema.columns, "    ");
+        const reqItemSM = this.generateSystemMessageForColumns(reqItemSchema.columns, "      ");
 
         return `Ты- AI помощник менеджера по снабжению в строительной компании.
 В отдел снабжения приходят письма по email с заявками на разные строительные проекты. 
 Твоя задача- проанализировать письмо и создать JSON с заявкой. 
 Этот JSON будет сохранен в базе данных и использован в системе управления заявками.
-JSON документ состоит из полей:
+JSON документ со следуюшей структурой:
+  - 'requisition' (optional) - сама заявка. Это поле может отсутствовать если письмо по сути не является заявкой и было ошибочно отправлено на анализ
 ${reqSM}
-  - 'requisitionItems' list of products
-${reqItemSM}`;
+    - 'requisitionItems' list of products
+${reqItemSM}
+  - 'notes[]' - (список замечаний) здесь ты должен сформировать список своих комментариев, вопросов или ошибок валидации, которые возникли при анализе письма.
+      Нужно указать на все неточности или "скользкие" моменты которые могут возникнуть при дальнейшей обработки этой заявки.
+      Внутри notes- массив с полями
+    - 'level' - степень критичности комментария (info/warning/error). 
+      В "info" можешь добавлять информацию о том как ты дополнил или
+      преобразовал изначальное письмо (например "шт" -> "штука"), исправил опечатки ("печатки" -> "перчатки") или дополнил 
+      ("ГКЛ" => "гипсокартон (ГКЛ)")
+      В "warning" можешь указывать если не была указана единица измерения но ты догадался (например "молоток 5" -> "молоток 5 штук")
+      В "error" добавляй если важная информация не указана (нет dueDate, не указно количество, не полная информация о товаре.
+
+  - 'replyMessage' - подоготовь сразу письмо с вопросами, которое можно выслать для уточнения информации (если есть, что уточнять).
+      
+`;
     }
 
     private generateSystemMessageForColumns(columns : Record<string, ColumnDefinition<any>>, prefix : string) : string {

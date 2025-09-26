@@ -2,6 +2,8 @@ import { Configuration, PublicClientApplication } from "@azure/msal-browser";
 import { User, Message } from '@microsoft/microsoft-graph-types';
 import { excelLog } from "../util/Logs";
 import { ChatCompletion } from "openai/resources/chat/completions/completions";
+import { Requisition } from "../util/data/DBSchema";
+import { notStrictEqual } from "assert";
 
 interface ChatCompletionRequest {
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
@@ -15,6 +17,19 @@ interface ChatCompletionResponse {
     id: string;
     model: string;
     usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
+export type NoteLevel = "info" | "warning" | "error";
+
+export interface ContentResponseNote {
+    level : NoteLevel;
+    text : string;
+}
+
+export interface ContentResponse {
+    requisition : Requisition;
+    notes : ContentResponseNote[];
+    replyMessage : string;
 }
 
 export class AIService {

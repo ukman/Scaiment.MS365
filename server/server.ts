@@ -7,6 +7,8 @@ import { getHttpsServerOptions } from 'office-addin-dev-certs';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import * as XLSX from 'xlsx';
 import { AzureOpenAI } from 'openai';
+import { Attachment, FileAttachment, Message } from '@microsoft/microsoft-graph-types';
+import { Client } from '@microsoft/microsoft-graph-client';
 
 dotenv.config();
 
@@ -44,6 +46,15 @@ async function startServer() {
 
     app.post('/api/openai/chat', handleOpenAIRequest);
     // app.get('/api/openai/chat', handleOpenAIRequest);
+
+    app.post('/emails', async (req: Request, res: Response) => {
+        const reqData = await req.body;
+        console.log("Email attachments request = ", reqData);
+        const result = await getOutlookMessageById(reqData.accessToken, reqData.messageId);
+        console.log("Email attachments result = ", result);
+
+        res.json(result);
+    });
 
     app.get('/health', async (_req: Request, res: Response) => {
         res.json({status:"ok"});
@@ -170,6 +181,124 @@ async function handleOpenAIRequest(req: Request, res: Response) {
     }
     */
 }
+
+export interface ExcelFile {
+    fileName : string;
+    csv : string;
+}
+
+async function getOutlookMessageById(
+    accessToken: string, 
+    messageId: string, 
+    userId: string = 'me'
+): Promise<ExcelFile[]> {
+    
+    // 1. Инициализация клиента Microsoft Graph
+    const client = Client.init({
+        authProvider: (done) => {
+            done(null, accessToken);
+        }
+    });
+
+    try {
+
+
+        // 2. Формирование запроса к Graph API
+        // Запрос к: /users/{userId}/messages/{messageId}
+        const message = await client
+            .api(`/${userId}/messages/${messageId}`)
+            // Используем .get() для выполнения GET-запроса
+            .query({ '$expand': 'attachments' })
+            .get();
+
+        console.log(`Письмо с ID ${messageId} успешно получено.`);
+        
+        
+        // 3. Проверка и параллельная загрузка содержимого вложений
+        if (message.attachments && message.attachments.length > 0) {
+            console.log(`Найдено ${message.attachments.length} вложений. Загрузка содержимого...`);
+            
+            // Создаем массив промисов для параллельного выполнения запросов
+            const fetchContentPromises = message.attachments.map(async (att: Attachment) => {
+                
+                // Только FileAttachment содержит двоичные данные. 
+                // ItemAttachment (другое письмо или контакт) или ReferenceAttachment (ссылка на OneDrive) обрабатываются иначе.
+                if (att['@odata.type'] !== '#microsoft.graph.fileAttachment') {
+                    console.warn(`Вложение ID ${att.id} имеет тип ${att['@odata.type']} (не FileAttachment). Пропускаем загрузку содержимого.`);
+                    return att; // Возвращаем метаданные без загрузки
+                }
+
+                // URL для получения полного объекта вложения, который включает contentBytes
+                const attachmentPath = `/users/${userId}/messages/${messageId}/attachments/${att.id}`;
+                
+                try {
+                    // Делаем отдельный запрос, чтобы получить поле contentBytes
+                    const fullAttachment = await client.api(attachmentPath).get();
+                    
+                    // Возвращаем полный объект (теперь с contentBytes: string (Base64))
+                    return fullAttachment as FileAttachment; 
+                } catch (fetchError) {
+                    console.error(`Ошибка при получении содержимого вложения ID ${att.id}.`, fetchError);
+                    return att; // В случае ошибки возвращаем только метаданные
+                }
+            });
+
+            // Ждем завершения всех запросов на загрузку содержимого
+            const fullAttachments = await Promise.all(fetchContentPromises);
+
+            const res = await Promise.all(fullAttachments.filter(a => a.name.endsWith(".xlsx")).map(a => convertExcelToCSV(a)));
+            
+            // 4. Обновляем объект сообщения полными данными вложений
+            // message.attachments = fullAttachments as Attachment[];
+            return res;
+        }
+
+
+
+        return [];
+
+    } catch (error) {
+        console.error(`Ошибка при чтении письма с ID ${messageId}:`, error);
+        // Выбрасываем ошибку для обработки вызывающим кодом
+        throw new Error(`Не удалось получить письмо: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * Преобразует Excel файл из FileAttachment в CSV текст (строку).
+ * Предполагается, что файл - это Excel (.xlsx или .xls).
+ * Конвертирует только первый лист.
+ * 
+ * @param attachment - FileAttachment из Graph API (attachment из email)
+ * @returns Promise<string> - CSV текст
+ */
+async function convertExcelToCSV(attachment: FileAttachment): Promise<ExcelFile> {
+    // Получаем содержимое attachment как base64
+    const base64Content = attachment.contentBytes;
+    
+    if (!base64Content) {
+      throw new Error('Attachment content is empty');
+    }
+  
+    // Декодируем base64 в Buffer (удаляем префикс data: если есть, но в Graph API это чистый base64)
+    const buffer = Buffer.from(base64Content, 'base64');
+  
+    // Парсим Excel файл
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+  
+    if (workbook.SheetNames.length === 0) {
+      throw new Error('No sheets found in the Excel file');
+    }
+  
+    // Берем первый лист
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+  
+    // Конвертируем в CSV
+    const csv = XLSX.utils.sheet_to_csv(worksheet);
+  
+    return {fileName : attachment.name, csv};
+  }
 
 startServer().catch((error) => {
     console.error('Failed to start server:', error);
