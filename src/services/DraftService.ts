@@ -1,9 +1,13 @@
-import { ProjectMember, Requisition } from "../util/data/DBSchema";
+import { ProjectMember, Requisition, RequisitionItem } from "../util/data/DBSchema";
 import { SchemaValidator } from "../util/data/UniversalRepo";
 import { excelLog } from "../util/Logs";
 import { ExcelService } from "./ExcelService";
 import { PersonService } from "./PersonService";
 import { ProcurementRole, ProjectService } from "./ProjectService";
+
+export interface RequisitionDraft extends Requisition {
+    sheetName: string;    
+}
 
 export class DraftService {
     constructor (private context : Excel.RequestContext) {
@@ -15,7 +19,7 @@ export class DraftService {
         return service;
     }
 
-    public async addRequisitionDraft(requisitionDraft : Requisition) {
+    public async addRequisitionDraft(requisitionDraft : RequisitionDraft) {
         const personService = await PersonService.create(this.context);
         // await excelLog("Trying to get current user ");
         const currentUser = await personService.getCurrentUser();
@@ -88,6 +92,35 @@ export class DraftService {
         */
 
 
-}
+    }
+
+    // public async getAllDraftSheetNames() : Promise<string[]> {
+    //     return 
+    // }
+
+    public async getDrafts() : Promise<RequisitionDraft[]> {
+        const excelService = await ExcelService.create(this.context);
+        const draftSheetNames = await excelService.findSheetsWithMarker("__requisitionDraftMarker");
+
+        const drafts : RequisitionDraft[] = [];
+        for(let i = 0; i < draftSheetNames.length; i++) {
+            const sheetName = draftSheetNames[i];
+            const draftData = (await excelService.getNamedRangesWithValues(sheetName)) as RequisitionDraft;
+            draftData.sheetName = sheetName;
+            
+            const items = await excelService.getTablesDataFromSheet(sheetName);
+            for(const key in items) {
+                if(key.startsWith("requisitionItems")) {
+                    const value = items[key];
+                    if(Array.isArray(value)) {
+                        (draftData as any).RequisitionItems = value as RequisitionItem[];
+                    }
+                } 
+            }
+            
+            drafts.push(draftData);
+        }
+        return drafts;
+    }
 
 }

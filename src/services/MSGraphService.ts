@@ -60,6 +60,7 @@ export class MSGraphService {
                         this.accessToken = accessToken;
                         localStorage.setItem(MSGraphService.ACCESS_TOKEN_KEY, accessToken);
                         localStorage.setItem(MSGraphService.REFRESH_TOKEN_KEY, refreshToken); // Для refresh
+                        excelLog(`refreshToken = ${refreshToken}`);
                     } else {
                         console.error('Auth failed:', message.error);
                     }

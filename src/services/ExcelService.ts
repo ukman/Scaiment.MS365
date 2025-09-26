@@ -307,10 +307,10 @@ public convertExcelSerialToDate(serialNumber: number): Date | null {
  *  - Имя на уровне листа (Worksheet Names)
  * Возвращает уникальный список имен листов.
  */
-    public async findSheetsWithMarker(ctx : Excel.RequestContext, markerName : string): Promise<string[]> {
+    public async findSheetsWithMarker(markerName : string): Promise<string[]> {
         // const MARKER_NAME = "__requisitionDraftMarker";
   
-        const wb = ctx.workbook;
+        const wb = this.context.workbook;
         const result = new Set<string>();
     
         // Загрузим коллекцию листов (имена нужны для возврата и для обхода)
@@ -319,7 +319,7 @@ public convertExcelSerialToDate(serialNumber: number): Date | null {
         // Проверим наличие имени на уровне книги
         const wbNamed = wb.names.getItemOrNullObject(markerName);
     
-        await ctx.sync();
+        await this.context.sync();
     
         // Если имя существует на уровне книги — получим его диапазон и лист
         /*
@@ -345,7 +345,7 @@ public convertExcelSerialToDate(serialNumber: number): Date | null {
         });
     
         // Выполним sync, чтобы узнать какие из них существуют
-        await ctx.sync();
+        await this.context.sync();
     
         // Для существующих имен получим соответствующие диапазоны и листы
         const rangesToLoad: Excel.Range[] = [];
@@ -355,7 +355,7 @@ public convertExcelSerialToDate(serialNumber: number): Date | null {
             named.load("type");
             }
         }
-        await ctx.sync();
+        await this.context.sync();
     
         for (const { named } of perSheetNamedItems) {
             if (named && !named.isNullObject && named.type === Excel.NamedItemType.range) {
@@ -365,7 +365,7 @@ public convertExcelSerialToDate(serialNumber: number): Date | null {
     
         if (rangesToLoad.length > 0) {
             rangesToLoad.forEach((r) => r.load("worksheet/name"));
-            await ctx.sync();
+            await this.context.sync();
             rangesToLoad.forEach((r) => result.add(r.worksheet.name));
         }
     

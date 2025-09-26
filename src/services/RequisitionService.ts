@@ -7,21 +7,22 @@ import { ProcurementRole, ProjectService } from "./ProjectService";
 
 export class RequisitionService {
     constructor (
+        private context : Excel.RequestContext,
         private requisitionRepo: TypedTable<Requisition>, 
         private requisitionItemRepo: TypedTable<RequisitionItem>, 
         private requisitionApprovalRepo: TypedTable<RequisitionApproval>, 
         private personRepo: TypedTable<Person>) {
     }
 
-    public static async create(ctx : Excel.RequestContext) : Promise<RequisitionService> {
-        const orm = new WorkbookORM(ctx.workbook);
+    public static async create(context : Excel.RequestContext) : Promise<RequisitionService> {
+        const orm = new WorkbookORM(context.workbook);
 
         const requisitionRepo = await orm.tables.getAs<Requisition>("Requisition", requisitionDef);
         const requisitionItemRepo = await orm.tables.getAs<RequisitionItem>("RequisitionItem", requisitionItemDef);
         const requisitionApprovalRepo = await orm.tables.getAs<RequisitionApproval>("RequisitionApproval", requisitionApprovalDef);
         const personRepo = await orm.tables.getAs<Person>("Person", personDef);
 
-        const service = new RequisitionService(requisitionRepo, requisitionItemRepo, requisitionApprovalRepo, personRepo);
+        const service = new RequisitionService(context, requisitionRepo, requisitionItemRepo, requisitionApprovalRepo, personRepo);
         return service;
     }
 
@@ -33,6 +34,11 @@ export class RequisitionService {
     public async findAll() : Promise<Requisition[]> {
         const res = await this.requisitionRepo.rows.getAll();        
         return res;     
+    }
+
+    public async findAllByEmailIds(emailIds : string[]) : Promise<Requisition[]> {
+        const res = await this.requisitionRepo.rows.findAllByKeys("emailId", emailIds);
+        return res.map(item => item.row);     
     }
 
     public async saveRequisition(requisition : Requisition) {
@@ -57,34 +63,6 @@ export class RequisitionService {
         await excelLog("Approvals = " + JSON.stringify(approvals))
         await this.requisitionApprovalRepo.rows.addMany(approvals);
 
-    }
-
-    // public async getAllDraftSheetNames() : Promise<string[]> {
-    //     return 
-    // }
-
-    public async getDrafts(ctx : Excel.RequestContext) : Promise<Requisition[]> {
-        const excelService = await ExcelService.create(ctx);
-        const draftSheetNames = await excelService.findSheetsWithMarker(ctx, "__requisitionDraftMarker");
-
-        const drafts : Requisition[] = [];
-        for(let i = 0; i < draftSheetNames.length; i++) {
-            const sheetName = draftSheetNames[i];
-            const draftData = (await excelService.getNamedRangesWithValues(sheetName)) as Requisition;
-            
-            const items = await excelService.getTablesDataFromSheet(sheetName);
-            for(const key in items) {
-                if(key.startsWith("requisitionItems")) {
-                    const value = items[key];
-                    if(Array.isArray(value)) {
-                        (draftData as any).RequisitionItems = value as RequisitionItem[];
-                    }
-                } 
-            }
-            
-            drafts.push(draftData);
-        }
-        return drafts;
     }
 
 }

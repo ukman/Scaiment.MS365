@@ -14,7 +14,7 @@ import { MetadataService } from '../../services/MetadataService';
 import { Requisition } from '../../util/data/DBSchema';
 import { RequisitionView } from './RequisitionView';
 import { RequisitionService } from '../../services/RequisitionService';
-import { DraftService } from '../../services/DraftService';
+import { DraftService, RequisitionDraft } from '../../services/DraftService';
 
 
 // Инициализируем иконки (вызовите один раз в App.tsx или index.tsx)
@@ -44,9 +44,11 @@ interface OutlookEmailsProps {
 
 const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
   const [emails, setEmails] = useState<Message[]>([]);
+  const [aiResults, setAIResults] = useState<any>({});
   const [message, setMessage] = useState<Message | undefined>( undefined);
   const [requisition, setRequisition] = useState<Requisition | undefined>( undefined);
-
+  const [draftMap, setDraftMap] = useState<Map<string, RequisitionDraft>>(new Map());
+  const [requisitionMap, setRequisitionMap] = useState<Map<string, Requisition>>(new Map());
   
   const [prevMessage, setPrevMessage] = useState<Message | undefined>( undefined);
   const [loading, setLoading] = useState(false);
@@ -65,15 +67,40 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
     try {
       let emails : string[];
       await Excel.run(async (ctx) => {            
-        const ps = await PersonService.create(ctx);
+        // const ps = await PersonService.create(ctx);
+        // const ds = await DraftService.create(ctx);
+        // const rs = await RequisitionService.create(ctx);
+        const [ps, ds, rs] = await Promise.all([
+          PersonService.create(ctx),
+          DraftService.create(ctx),
+          RequisitionService.create(ctx)
+        ]);
+
         const cu = await ps.getCurrentUser();
         const projServ = await ProjectService.create(ctx);
         const projectMembers = await projServ.getUserProjects(cu.id);
         const allMembers = await projServ.getProjectsMembers(projectMembers.map(pm => pm.projectId));
         const creatorIds = allMembers.filter(m => m.roleName ==  "requisition_author").map(pm => pm.personId);
         const creators = await ps.findPersonsByIds(creatorIds);
+        const drafts = await ds.getDrafts();
+        const dm : Map<string, RequisitionDraft> = new Map();
+        drafts.filter(d => d.emailId && d.emailId.trim().length > 0).forEach(draft => dm.set(draft.emailId, draft));
+        setDraftMap(dm);
         emails = creators.map(p => p.email);
         excelLog("emails = " + emails.join(" , "));
+
+        await excelLog("Before loading email");
+        const data = await MSGraphService.getInstance().getMessages(emails);
+        await excelLog("After loading email " + JSON.stringify(data as any));
+        setEmails(data);
+  
+        const emailIds = data.map(email => email.id);
+        const requisitions = await rs.findAllByEmailIds(emailIds);
+        const rm : Map<string, Requisition> = new Map();
+        requisitions.filter(r => r.emailId && r.emailId.trim().length > 0).forEach(r => rm.set(r.emailId, r));
+        setRequisitionMap(rm);
+
+  
       });
 
       /*
@@ -98,10 +125,7 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
 
       const data = await response.json();
       */
-      await excelLog("Before loading email");
-      const data = await MSGraphService.getInstance().getMessages(emails);
-      await excelLog("After loading email " + JSON.stringify(data as any));
-      setEmails(data);
+
     } catch (err: any) {
       await excelLog("Error " + err);
       console.error('SSO error:', err);
@@ -148,6 +172,18 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
     return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
   };
 
+  const openDraft = async (emailId : string) => {
+    excelLog("openDraft", emailId);
+    const draft = draftMap.get(emailId);
+    if(draft.sheetName) {
+      await Excel.run(async (context: Excel.RequestContext) => {
+        const worksheet = context.workbook.worksheets.getItem(draft.sheetName);
+        worksheet.activate();
+      });
+    }
+
+  }
+
   const clickMessage = async (email : Message) => {
     await excelLog("Clicked " + email.from.emailAddress.address + "\n" + email.body.content);
     setPrevMessage(message);
@@ -159,7 +195,7 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
     return 1;
   }
 
-  const createDraft = async (requisition : Requisition) => {
+  const createDraft = async (requisition : RequisitionDraft) => {
       await Excel.run(async (context: Excel.RequestContext) => {
         try {
           const ds = await DraftService.create(context);
@@ -188,14 +224,14 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
       `
     );
     const content = JSON.parse(response.choices[0]?.message?.content);
+    (content as Requisition).emailId = email.id;
     const s = JSON.stringify(content, null, 2);
     excelLog(s);
-    (email as any).aiResult = content;
+    const newAIResults = {...aiResults};
+    newAIResults[email.id] = content;
+    setAIResults(newAIResults);
+    // (email as any).aiResult = content;
     
-  }
-
-  const backToMessages = async () => {
-      setMessage(undefined);  
   }
 
   return (
@@ -216,18 +252,22 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
           cursor: pointer;
         }
         .email-card:hover {
-          border-color: #0078d4;
-          box-shadow: 0 2px 8px rgba(0, 120, 212, 0.1);
+          // border-color: #0078d4;
+          //background-color: #DDDDDD;
+          // box-shadow: 0 2px 8px rgba(0, 120, 212, 0.1);
+        }
+        .email-card:hover .email-header {
+          background-color: #DDDDDD;
         }
         .email-card.unread {
           border-left: 4px solid #0078d4;
           background-color: #f8f9fa;
         }
         .email-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 8px;
+          // display: flex;
+          // justify-content: space-between;
+          // align-items: center;
+          // margin-bottom: 8px;
         }
         .email-subject {
           font-weight: 600;
@@ -260,8 +300,15 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
         }
         .body {
           max-height: 0px;
-          overflow:scroll;
+          overflow:auto;
           transition: max-height 0.3s ease-out;
+        }
+        div.email-preview.open {
+          height: 0px;
+          background-color:yellow;
+          opacity:0;
+          transition: height 0.3s ease-out;
+          transition: opacity 0.3s ease-out;
         }
         div.body.open {
            max-height: 600px; /* Установите достаточно большую высоту для контента */
@@ -295,27 +342,6 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
             </>
           )}
         </Button>
-
-        <PrimaryButton
-      text="Back"
-      onClick={backToMessages}
-      iconProps={{ iconName: 'Back' }}
-      styles={{
-        root: {
-          backgroundColor: '#0078D4', // Яркий синий цвет
-          color: '#FFFFFF', // Белый текст для контраста
-          fontSize: 16,
-          padding: '10px 20px',
-          height: 40,
-          minWidth: 100,
-          border: 'none',
-        },
-        icon: {
-          color: '#FFFFFF', // Убедимся, что иконка белая
-          marginRight: 8, // Отступ между иконкой и текстом
-        },
-      }}/>          
-
       </div>
 
       {error && (
@@ -333,18 +359,38 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
       ) : emails.length > 0 ? (
         <div>
           {emails.map((email) => (
-            <Card key={email.id} className={`email-card ${!email.isRead ? 'unread' : ''}`}>
+            <Card key={email.id} className={`email-card ${!email.isRead ? 'unread-nouse' : ''}`} >
               <Card.Body className="p-3">
                 <div className="email-header" onClick={() => clickMessage(email)}>
                   <div className="flex-grow-1">
                     <h6 className="email-subject">
                       {getImportanceIcon(email.importance)}
                       {email.subject || '(Без темы)'}
-                      {!email.isRead && (
+                      {!email.isRead && false && (
                         <Badge bg="primary" className="ms-2" style={{ fontSize: '10px' }}>
                           Новое
                         </Badge>
                       )}
+
+                      {draftMap.get(email.id) && 
+                        (<Button
+                          variant="outline-primary"
+                          size="sm"
+                          onClick={() => openDraft(email.id)}
+                          disabled={loading}
+                          className="refresh-button"
+                        >Draft is done
+                        </Button>)}
+                      {requisitionMap.get(email.id) && 
+                        (<Button
+                          variant="outline-primary"
+                          size="sm"
+                          onClick={() => openDraft(email.id)}
+                          disabled={loading}
+                          className="refresh-button"
+                        >Requisition is created
+                        </Button>)}
+
                     </h6>
                     <p className="email-from">
                       От: {email.from?.emailAddress?.name || email.from?.emailAddress?.address || 'Неизвестный отправитель'}
@@ -353,7 +399,7 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
                   <div className="email-date">{formatDate(email.receivedDateTime)}</div>
                 </div>
 
-                {email.bodyPreview && <div className="email-preview">{truncateText(email.bodyPreview)}</div>}
+                {email.bodyPreview && <div className={`email-preview ${email == message ? 'open' : ''}`} onClick={() => clickMessage(email)}>{truncateText(email.bodyPreview)}</div>}
 
                 <div className="email-badges">
                   {email.hasAttachments && (
@@ -368,8 +414,8 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
                     <PrimaryButton
                       text="Analyze"
                       onClick={() => analyzeMessage(email)}
-                      iconProps={{ iconName: 'NavigateBack' }}
-                      />          
+                      iconProps={{ iconName: 'MailTentative' }}
+                      />                              
 
                     </div>
                     {(email == message || email == prevMessage) && (
@@ -379,14 +425,15 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
 
                   </div>
 
-                  {(email as any).aiResult && (
+                  {(aiResults[email.id]) && (
                     <div>
-                      <RequisitionView data={((email as any).aiResult as Requisition)}></RequisitionView>
+                      <RequisitionView data={(aiResults[email.id] as Requisition)}></RequisitionView>
                       <div>
                         <PrimaryButton
-                            text="Create Draft"
-                            onClick={() => createDraft((email as any).aiResult as Requisition)}
-                            iconProps={{ iconName: 'NavigateBack' }}
+                            text="Create Requisition Draft"
+                            aria-label="Create Requisition Draft to"
+                            onClick={() => createDraft(aiResults[email.id] as RequisitionDraft)}
+                            iconProps={{ iconName: 'AddToShoppingList' }}
                             />          
                       </div>                      
                     </div>
@@ -407,26 +454,6 @@ const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
       )}
       </div>
     )} 
-      {message && false  && (
-        <div>
- 
-        {/* <Button
-          variant="outline-primary"
-          size="sm"
-          onClick={backToMessages}
-          className="refresh-button"
-        >
-          Back to messages
-          </Button> */}
-          <PrimaryButton
-          text="Back"
-          onClick={backToMessages}
-          iconProps={{ iconName: 'NavigateBack' }}
-          />          
-          <EmailMessageViewer message={message}></EmailMessageViewer>
-        </div>
-      )}
-
 
     </div>
 

@@ -27,6 +27,7 @@ import { excelLog } from "../../util/Logs";
 import { RequisitionService } from "../../services/RequisitionService";
 import { PersonService } from "../../services/PersonService";
 import { ProcurementRole, ProjectService } from "../../services/ProjectService";
+import { DraftService } from "../../services/DraftService";
 
 export interface TestProps {
     title: string;
@@ -191,8 +192,8 @@ const Test: React.FC<TestProps> = (props: TestProps) => {
         
         await Excel.run(async (ctx) => {
             try {
-                const requisitionService = await RequisitionService.create(ctx);
-                const drafts = await requisitionService.getDrafts(ctx);
+                const draftService = await DraftService.create(ctx);
+                const drafts = await draftService.getDrafts();
                 // setData(JSON.stringify(drafts, null, 2));
                 setItems(drafts); 
             } catch (e) {

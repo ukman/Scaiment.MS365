@@ -49,7 +49,7 @@ async function startServer() {
         res.json({status:"ok"});
     });
 
-    // Callback
+    // OAuth Callback
     app.get('/auth/callback', async (req, res) => {
         console.log("Auth callback started");
         const tokenRequest = {
