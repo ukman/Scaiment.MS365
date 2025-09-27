@@ -44,7 +44,7 @@ interface OutlookEmailsProps {
 
 const OutlookEmails: React.FC<OutlookEmailsProps> = () => {
   const [emails, setEmails] = useState<Message[]>([]);
-  const [aiResults, setAIResults] = useState<any>({});
+  const [aiResults, setAIResults] = useState<Map<String, ContentResponse>>(new Map());
   const [message, setMessage] = useState<Message | undefined>( undefined);
   const [requisition, setRequisition] = useState<Requisition | undefined>( undefined);
   const [draftMap, setDraftMap] = useState<Map<string, RequisitionDraft>>(new Map());
@@ -236,8 +236,8 @@ ${email.body.content}
     if(contentRequisition.requisition) {
       contentRequisition.requisition.emailId = email.id;
     }
-    const newAIResults = {...aiResults};
-    newAIResults[email.id] = content;
+    const newAIResults = new Map(aiResults); //  {...aiResults};
+    newAIResults.set(email.id, contentRequisition);
     setAIResults(newAIResults);
     // (email as any).aiResult = content;
     
@@ -428,19 +428,19 @@ ${email.body.content}
 
                   </div>
 
-                  {(aiResults[email.id]) && (
+                  {(aiResults.get(email.id)) && (
                     <div>
-                      <RequisitionView data={(aiResults[email.id] as ContentResponse).requisition}></RequisitionView>
+                      <RequisitionView data={(aiResults.get(email.id).requisition)}></RequisitionView>
                       <div>
                         <PrimaryButton
                             text="Create Requisition Draft"
                             aria-label="Create Requisition Draft to"
-                            onClick={() => createDraft(aiResults[email.id] as RequisitionDraft)}
+                            onClick={() => createDraft(aiResults.get(email.id).requisition as RequisitionDraft)}
                             iconProps={{ iconName: 'AddToShoppingList' }}
                             />          
                       </div>           
                       <pre>
-                      {(aiResults[email.id] as ContentResponse).replyMessage}
+                      {(aiResults.get(email.id).replyMessage)}
                       </pre>           
                     </div>
                   )}

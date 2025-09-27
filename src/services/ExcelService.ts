@@ -464,7 +464,7 @@ public async fillTableWithData(
         // Берем первую таблицу
         targetTable = tables.items[0];
       }
-      await excelLog("fillTableWithData targetTable = " + targetTable);
+      await excelLog("fillTableWithData targetTable = ", targetTable);
       
       // Загружаем заголовки таблицы
       const headerRange = targetTable.getHeaderRowRange();
@@ -475,7 +475,7 @@ public async fillTableWithData(
       // Получаем заголовки как массив строк
       const headers: string[] = headerRange.values[0] as string[];
       
-      if (data.length === 0) {
+      if (!data || data.length === 0) {
         await excelLog("Массив данных пуст");
         return;
       }
